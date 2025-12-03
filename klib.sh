@@ -12,6 +12,7 @@ kl.errln() {
     echo -e "$@" >&2
 }
 
+
 #set -eo pipefail
 
 kl.getTopCaller() {
