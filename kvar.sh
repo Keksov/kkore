@@ -1,5 +1,6 @@
 #!/bin/bash
 
+#
 declare -A __KLIB_VARS
 
 # Generate unique variable name with random ID
