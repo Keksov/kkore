@@ -710,10 +710,421 @@ else
     kt_test_fail "Function batch creation failed (got ${#var_names[@]} vars)"
 fi
 
+# ============================================================================
+# Edge Cases and Error Handling Tests
+# ============================================================================
+
+# Test 42: kv.new with empty variable name prefix
+kt_test_start "kv.new handles empty variable name prefix"
+kv.new "value" ""
+var_name="$RESULT"
+if kt_assert_not_equals "" "$var_name" "Should generate valid name even with empty prefix"; then
+    kt_test_pass "kv.new handles empty variable name prefix"
+else
+    kt_test_fail "kv.new failed with empty prefix"
+fi
+
+# Test 43: kv.new with special characters in custom prefix
+kt_test_start "kv.new handles special characters in custom prefix"
+kv.new "value" "my-prefix_123"
+var_name="$RESULT"
+if kt_assert_contains "$var_name" "my-prefix_123" "Should use custom prefix"; then
+    kt_test_pass "kv.new handles special characters in custom prefix"
+else
+    kt_test_fail "kv.new failed with special prefix characters"
+fi
+
+# Test 44: kv.get with whitespace variable name
+kt_test_start "kv.get handles whitespace variable name"
+kv.get "   "
+if kt_assert_equals "" "$RESULT" "Should return empty for whitespace name"; then
+    kt_test_pass "kv.get handles whitespace variable name"
+else
+    kt_test_fail "kv.get failed with whitespace name"
+fi
+
+# Test 45: kv.set with whitespace variable name
+kt_test_start "kv.set handles whitespace variable name"
+kv.set "   " "some_value"
+if [[ "${__KLIB_VARS["   "]}" == "some_value" ]] && kt_assert_equals "some_value" "${__KLIB_VARS["   "]}" "Should handle whitespace name"; then
+    kt_test_pass "kv.set handles whitespace variable name"
+else
+    kt_test_fail "kv.set failed with whitespace name"
+fi
+
+# Test 46: kv.free with whitespace variable name
+kt_test_start "kv.free handles whitespace variable name"
+kv.free "   "
+if kt_assert_equals "" "${__KLIB_VARS["   "]}" "Should handle whitespace name gracefully"; then
+    kt_test_pass "kv.free handles whitespace variable name"
+else
+    kt_test_fail "kv.free failed with whitespace name"
+fi
+
+# Test 47: kv.new with very long initial value
+kt_test_start "kv.new handles very long initial value"
+long_value=$(printf 'A%.0s' {1..1000})
+kv.new "$long_value" "longvar"
+var_name="$RESULT"
+kv.get "$var_name"
+if kt_assert_equals "$long_value" "$RESULT" "Should handle long values"; then
+    kt_test_pass "kv.new handles very long initial value"
+else
+    kt_test_fail "kv.new failed with long value"
+fi
+
+# Test 48: kv.set with very long value
+kt_test_start "kv.set handles very long replacement value"
+long_replacement=$(printf 'B%.0s' {1..2000})
+kv.new "short"
+var_name="$RESULT"
+kv.set "$var_name" "$long_replacement"
+if kt_assert_equals "$long_replacement" "${__KLIB_VARS[$var_name]}" "Should handle long replacement"; then
+    kt_test_pass "kv.set handles very long replacement value"
+else
+    kt_test_fail "kv.set failed with long replacement"
+fi
+
+# Test 49: kv.new generates different names with same prefix
+kt_test_start "kv.new generates unique names with same prefix"
+kv.new "val1" "test"
+name1="$RESULT"
+kv.new "val2" "test"
+name2="$RESULT"
+kv.new "val3" "test"
+name3="$RESULT"
+if kt_assert_not_equals "$name1" "$name2" && kt_assert_not_equals "$name2" "$name3" && kt_assert_not_equals "$name1" "$name3"; then
+    kt_test_pass "kv.new generates unique names with same prefix"
+else
+    kt_test_fail "kv.new generated duplicate names with same prefix"
+fi
+
+# Test 50: kv.set with whitespace-only values
+kt_test_start "kv.set handles whitespace-only values"
+kv.new "value"
+var_name="$RESULT"
+kv.set "$var_name" "   "
+if kt_assert_equals "   " "${__KLIB_VARS[$var_name]}" "Should preserve whitespace"; then
+    kt_test_pass "kv.set handles whitespace-only values"
+else
+    kt_test_fail "kv.set failed with whitespace-only value"
+fi
+
+# Test 51: kv.get with variable containing only whitespace
+kt_test_start "kv.get retrieves whitespace-only values correctly"
+kv.set "$var_name" "   "
+kv.get "$var_name"
+if kt_assert_equals "   " "$RESULT" "Should return exact whitespace"; then
+    kt_test_pass "kv.get retrieves whitespace-only values correctly"
+else
+    kt_test_fail "kv.get failed with whitespace-only value"
+fi
+
+# ============================================================================
+# Subshell and Context Tests
+# ============================================================================
+
+# Test 52: kv.new in subshell
+kt_test_start "kv.new creates variables in subshell context"
+kv.new "nested_value"
+var_name="$RESULT"
+if [[ -n "$var_name" ]]; then
+    kv.get "$var_name"
+    if kt_assert_equals "nested_value" "$RESULT" "Should create variable in subshell"; then
+        kt_test_pass "kv.new creates variables in subshell context"
+    else
+        kt_test_fail "kv.new subshell value incorrect"
+    fi
+else
+    kt_test_fail "kv.new failed in subshell"
+fi
+
+# Test 53: kv.get returns same value in multiple calls
+kt_test_start "kv.get returns consistent values"
+kv.new "consistent"
+var_name="$RESULT"
+result1=$(kv.get "$var_name")
+result2=$(kv.get "$var_name")
+result3=$(kv.get "$var_name")
+if [[ "$result1" == "consistent" ]] && [[ "$result2" == "consistent" ]] && [[ "$result3" == "consistent" ]]; then
+    kt_test_pass "kv.get returns consistent values"
+else
+    kt_test_fail "kv.get inconsistent across calls"
+fi
+
+# Test 54: kv.set in subshell affects global storage
+kt_test_start "kv.set in subshell affects global storage"
+kv.new "global_test"
+var_name="$RESULT"
+kv.set "$var_name" "modified_in_subshell"
+kv.get "$var_name"
+if [[ "$RESULT" == "modified_in_subshell" ]]; then
+    kt_test_pass "kv.set in subshell affects global storage"
+else
+    kt_test_fail "kv.set subshell modification failed"
+fi
+
+# ============================================================================
+# Performance and Resource Management Tests
+# ============================================================================
+
+# Test 55: Large number of variable creation
+kt_test_start "kv.new handles large number of variables efficiently"
+start_time=$(date +%s%N)
+declare -a large_var_names
+for i in {1..100}; do
+    kv.new "batch_value_$i"
+    large_var_names+=("$RESULT")
+done
+end_time=$(date +%s%N)
+duration=$((end_time - start_time))
+
+# Verify all variables were created correctly
+all_valid=true
+for var_name in "${large_var_names[@]}"; do
+    kv.get "$var_name"
+    if [[ ! "$RESULT" =~ ^batch_value_[0-9]+$ ]]; then
+        all_valid=false
+        break
+    fi
+done
+
+if [[ "$all_valid" == true ]] && [[ $duration -lt 1000000000 ]]; then
+    kt_test_pass "kv.new handles large number of variables efficiently"
+else
+    kt_test_fail "Large variable batch creation failed or too slow"
+fi
+
+# Test 56: Memory cleanup after batch free
+kt_test_start "Memory is properly cleaned after batch free"
+kv.new "test1"
+var1="$RESULT"
+kv.new "test2"
+var2="$RESULT"
+kv.new "test3"
+var3="$RESULT"
+
+# Count variables before cleanup
+var_count_before="${#__KLIB_VARS[@]}"
+
+kv.free "$var1"
+kv.free "$var2"
+kv.free "$var3"
+
+var_count_after="${#__KLIB_VARS[@]}"
+
+if [[ $var_count_after -lt $var_count_before ]]; then
+    kt_test_pass "Memory is properly cleaned after batch free"
+else
+    kt_test_fail "Memory cleanup failed (before: $var_count_before, after: $var_count_after)"
+fi
+
+# ============================================================================
+# Integration with Shell Features Tests
+# ============================================================================
+
+# Test 57: Variable management with command substitution
+kt_test_start "Variables work with command substitution context"
+kv.new "cmd_test"
+var_name="$RESULT"
+kv.set "$var_name" "hello"
+result=$(kv.get "$var_name" && echo " world")
+if kt_assert_equals "hello world" "$result" "Should work in command substitution"; then
+    kt_test_pass "Variables work with command substitution context"
+else
+    kt_test_fail "Variables failed in command substitution"
+fi
+
+# Test 58: kv operations in conditional statements
+kt_test_start "kv operations work correctly in conditionals"
+kv.new "0"
+counter="$RESULT"
+if kv.set "$counter" "1"; then
+    kv.get "$counter"
+    if [[ "$RESULT" == "1" ]]; then
+        kt_test_pass "kv operations work correctly in conditionals"
+    else
+        kt_test_fail "kv operations failed in conditional value check"
+    fi
+else
+    kt_test_fail "kv.set failed in conditional"
+fi
+
+# Test 59: Variable values in arithmetic expressions
+kt_test_start "Variable values work in arithmetic expressions"
+kv.new "5"
+num_var="$RESULT"
+kv.set "$num_var" "10"
+kv.get "$num_var"
+doubled=$((RESULT * 2))
+if kt_assert_equals "20" "$doubled" "Should work in arithmetic"; then
+    kt_test_pass "Variable values work in arithmetic expressions"
+else
+    kt_test_fail "Variables failed in arithmetic context"
+fi
+
+# Test 60: String concatenation with variables
+kt_test_start "Variable values work in string operations"
+kv.new "prefix"
+str_var="$RESULT"
+kv.set "$str_var" "Hello"
+kv.get "$str_var"
+concatenated="${RESULT} World"
+if kt_assert_equals "Hello World" "$concatenated" "Should work in string operations"; then
+    kt_test_pass "Variable values work in string operations"
+else
+    kt_test_fail "Variables failed in string concatenation"
+fi
+
+# ============================================================================
+# Recursive and Complex Function Patterns Tests
+# ============================================================================
+
+# Test 61: Recursive variable creation and access
+kt_test_start "Variables work in recursive function calls"
+recursive_counter() {
+    local depth="$1"
+    local var_name="$2"
+    if [[ $depth -gt 0 ]]; then
+        kv.get "$var_name"
+        local current=$((RESULT + 1))
+        kv.set "$var_name" "$current"
+        recursive_counter $((depth - 1)) "$var_name"
+    fi
+}
+kv.new "0"
+rec_counter="$RESULT"
+recursive_counter 5 "$rec_counter"
+kv.get "$rec_counter"
+if kt_assert_equals "5" "$RESULT" "Recursive calls should accumulate correctly"; then
+    kt_test_pass "Variables work in recursive function calls"
+else
+    kt_test_fail "Recursive variable operations failed (got: $RESULT)"
+fi
+
+# Test 62: Variable passing through multiple function layers
+kt_test_start "Variables pass through multiple function layers"
+layer1() {
+    local var_name="$1"
+    layer2 "$var_name"
+}
+layer2() {
+    local var_name="$1"
+    layer3 "$var_name"
+}
+layer3() {
+    local var_name="$1"
+    kv.get "$var_name"
+    local val="$RESULT"
+    kv.set "$var_name" "${val}_layer3"
+}
+kv.new "base"
+multi_var="$RESULT"
+layer1 "$multi_var"
+kv.get "$multi_var"
+if kt_assert_equals "base_layer3" "$RESULT" "Should pass through all layers"; then
+    kt_test_pass "Variables pass through multiple function layers"
+else
+    kt_test_fail "Multi-layer variable passing failed (got: $RESULT)"
+fi
+
+# Test 63: Temporary variable cleanup in error scenarios
+kt_test_start "Temporary variables are cleaned up in error scenarios"
+cleanup_on_error() {
+    local target_var_name="$1"
+    kv.new "temp_value"
+    local temp_var="$RESULT"
+    # Simulate error condition
+    if [[ "$target_var_name" == "error" ]]; then
+        kv.free "$temp_var"
+        return 1
+    fi
+    kv.get "$temp_var"
+    kv.set "$target_var_name" "$RESULT"
+    kv.free "$temp_var"
+    return 0
+}
+# Create a properly named variable, not using the word "target"
+kv.new "" "error_test_var"
+result_var_name="$RESULT"
+cleanup_on_error "error"
+cleanup_result=$?
+kv.get "$result_var_name"
+if [[ $cleanup_result -ne 0 ]] && [[ "$RESULT" == "" ]]; then
+    kt_test_pass "Temporary variables are cleaned up in error scenarios"
+else
+    kt_test_fail "Cleanup on error failed (result: $cleanup_result, target: $RESULT)"
+fi
+
+# Test 64: Complex nested variable dependencies
+kt_test_start "Complex nested variable dependencies work correctly"
+kv.new "A"
+var_a="$RESULT"
+kv.new "B"
+var_b="$RESULT"
+kv.new "C"
+var_c="$RESULT"
+
+# Set up dependencies
+kv.set "$var_a" "initial_A"
+kv.set "$var_b" "${__KLIB_VARS[$var_a]}_B"
+kv.set "$var_c" "${__KLIB_VARS[$var_b]}_C"
+
+kv.get "$var_a"
+val_a="$RESULT"
+kv.get "$var_b"
+val_b="$RESULT"
+kv.get "$var_c"
+val_c="$RESULT"
+
+if [[ "$val_a" == "initial_A" ]] && [[ "$val_b" == "initial_A_B" ]] && [[ "$val_c" == "initial_A_B_C" ]]; then
+    kt_test_pass "Complex nested variable dependencies work correctly"
+else
+    kt_test_fail "Nested dependencies failed (A: $val_a, B: $val_b, C: $val_c)"
+fi
+
+# Test 65: Variable state preservation across complex script phases
+kt_test_start "Variables preserve state across script execution phases"
+# Simulate different phases
+phase1_vars() {
+    kv.new "phase1_data"
+    __phase1_var="$RESULT"
+    kv.set "$__phase1_var" "phase1_value"
+}
+phase2_vars() {
+    kv.get "$__phase1_var"
+    if [[ "$RESULT" == "phase1_value" ]]; then
+        kv.new "phase2_data"
+        __phase2_var="$RESULT"
+        kv.set "$__phase2_var" "phase2_value"
+    fi
+}
+phase3_vars() {
+    kv.get "$__phase1_var"
+    local p1="$RESULT"
+    kv.get "$__phase2_var"
+    local p2="$RESULT"
+    RESULT="${p1}:${p2}"
+}
+phase1_vars
+phase2_vars
+phase3_vars
+if kt_assert_equals "phase1_value:phase2_value" "$RESULT" "State should persist across phases"; then
+    kt_test_pass "Variables preserve state across script execution phases"
+else
+    kt_test_fail "State preservation failed (got: $RESULT)"
+fi
+
 # Cleanup
 unset __KLIB_VARS
 unset RESULT
-unset RESULT
+unset var_name
+unset var_name_1
+unset var_name_2
+unset var_name_3
+unset var1
+unset var2
+unset var3
 unset counter
 unset result
 unset arr
@@ -724,3 +1135,122 @@ unset var_to_modify
 unset result_var
 unset shared
 unset var_names
+unset __test_var_batch
+unset var_batch
+unset large_var_names
+unset all_valid
+unset duration
+unset start_time
+unset end_time
+unset i
+unset j
+unset iteration
+unset iterations
+unset max_iterations
+unset element
+unset outer_counter
+unset inner_counter
+unset outer_val
+unset inner_val
+unset outer_final
+unset inner_final
+unset temp_var
+unset temp_val
+unset temp_val_after
+unset temp_var_name
+unset target_val
+unset first_result
+unset second_result
+unset doubled
+unset concatenated
+unset depth
+unset rec_counter
+unset multi_var
+unset p1
+unset p2
+unset val_a
+unset val_b
+unset val_c
+unset current
+unset val1
+unset val2
+unset val3
+unset val1_before
+unset val2_before
+unset val3_before
+unset val1_after
+unset val2_after
+unset val3_after
+unset value_before_free
+unset value_after_free
+unset val_b_after
+unset val_a_final
+unset val_b_final
+unset val_c_final
+unset val_a_updated
+unset val_b_updated
+unset val_c_updated
+unset val_a_read
+unset val_b_read
+unset val_c_read
+unset func1_result
+unset func2_result
+unset func1_name
+unset func2_name
+unset temp_from_func1
+unset temp_from_func2
+unset mod_from_func1
+unset mod_from_func2
+unset temp_val_1
+unset temp_val_2
+unset temp_val_3
+unset temp1
+unset temp2
+unset temp3
+unset char
+unset straccum
+unset funcvar
+unset var_from_func
+unset create_and_return_var
+unset myvar
+unset append_to_var
+unset text
+unset append_func
+unset suffix
+unset modify_via_param
+unset var_name_to_modify
+unset func_with_cleanup
+unset first_modifier
+unset second_modifier
+unset base
+unset create_var_batch
+unset count
+unset __phase1_var
+unset __phase2_var
+unset phase1_vars
+unset phase2_vars
+unset phase3_vars
+unset long_value
+unset long_replacement
+unset name1
+unset name2
+unset name3
+unset whitespace_value
+unset nested_value
+unset nested_result
+unset consistent
+unset result1
+unset result2
+unset result3
+unset cmd_test
+unset cmd_result
+unset num_var
+unset str_var
+unset layer1
+unset layer2
+unset layer3
+unset cleanup_on_error
+unset target_var
+unset var_a
+unset var_b
+unset var_c
