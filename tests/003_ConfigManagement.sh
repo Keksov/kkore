@@ -11,6 +11,7 @@ kt_test_init "ConfigManagement" "$SCRIPT_DIR" "$@"
 # Source kcfg if needed
 KCFG_DIR="$SCRIPT_DIR/.."
 [[ -f "$KCFG_DIR/kcfg.sh" ]] && source "$KCFG_DIR/kcfg.sh"
+[[ -f "$KCFG_DIR/kerr.sh" ]] && source "$KCFG_DIR/kerr.sh"
 
 # ============================================================================
 # kc.set() Tests - Set configuration value
@@ -460,7 +461,7 @@ kt_test_start "kc.alias creates variable with kc_ prefix"
 kc.clear
 kc.set "feature" "enabled"
 kc.alias "feature"
-if [[ -v kc_feature ]]; then
+if kc.iasAlias "kc_feature"; then
     if kt_assert_equals "enabled" "$kc_feature" "Should create variable kc_feature"; then
         kt_test_pass "kc.alias creates variable with kc_ prefix"
     else
@@ -526,7 +527,7 @@ kt_test_start "kc.alias with empty string value"
 kc.clear
 kc.set "empty" ""
 kc.alias "empty"
-if [[ -v kc_empty ]] && [[ "$kc_empty" == "" ]]; then
+if kc.iasAlias "kc_empty" && [[ "$kc_empty" == "" ]]; then
     kt_test_pass "kc.alias with empty string value"
 else
     kt_test_fail "kc.alias empty value handling failed"

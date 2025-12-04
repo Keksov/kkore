@@ -1,5 +1,11 @@
 #!/bin/bash
 
+# Prevent multiple sourcing
+if [[ -n "$__KLIB_CFG_SOURCED" ]]; then
+    return
+fi
+declare -g __KLIB_CFG_SOURCED=1
+
 declare -A __KLIB_CONFIG
 
 # Set config value
@@ -67,10 +73,16 @@ kc.isFalse() {
     [[ "${__KLIB_CONFIG[$1]}" == "false" ]]
 }
 
+
 # Create dynamic variable alias for config value (optimized for tight loops)
 # Usage: kc.alias "feature" creates nameref: kc_feature -> __KLIB_CONFIG[feature]
 # Alias automatically reflects current value in __KLIB_CONFIG[feature]
 kc.alias() {
-    declare -gn "kc_${1}=__KLIB_CONFIG[$1]"
+    declare -ng "kc_${1}=__KLIB_CONFIG[$1]"
 }
 
+# Check if nameref variable exists
+# Usage: kc.iasAlias "kc_feature"
+kc.iasAlias() {
+    [[ $(declare -p "$1" 2>/dev/null) =~ ^declare\ -n ]]
+}

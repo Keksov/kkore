@@ -11,6 +11,7 @@ kt_test_init "KKLib" "$SCRIPT_DIR" "$@"
 # Source klib if needed
 KLIB_DIR="$SCRIPT_DIR/.."
 [[ -f "$KLIB_DIR/klib.sh" ]] && source "$KLIB_DIR/klib.sh"
+[[ -f "$KLIB_DIR/kerr.sh" ]] && source "$KLIB_DIR/kerr.sh" set_trap
 
 # ============================================================================
 # kl.getTopCaller() Tests
@@ -238,7 +239,7 @@ fi
 kt_test_start "Error handler trap is configured"
 # Check if the ERR trap is set
 trap_output=$(trap -p ERR 2>/dev/null)
-if kt_assert_contains "$trap_output" "kl.errorHandler" "ERR trap should call kl.errorHandler"; then
+if kt_assert_contains "$trap_output" "ke.onError" "ERR trap should call ke.onError"; then
     kt_test_pass "Error handler trap is configured"
 else
     kt_test_fail "Error handler trap not properly configured"
@@ -255,13 +256,14 @@ test_script="$TMP_DIR/error_test_$(date +%s)_$RANDOM.sh"
 cat > "$test_script" << 'EOF'
 #!/bin/bash
 source "$1"
+source "$2" "set_trap"
 # Force an error by calling a non-existent command
 false_command_that_does_not_exist 2>/dev/null
 EOF
 chmod +x "$test_script"
 
 # Capture error output
-error_output=$("$test_script" "$KLIB_DIR/klib.sh" 2>&1 || true)
+error_output=$("$test_script" "$KLIB_DIR/klib.sh" "$KLIB_DIR/kerr.sh" 2>&1 || true)
 if kt_assert_contains "$error_output" "SCRIPT ERROR" "Should contain error header"; then
     kt_test_pass "Error handler produces expected output"
 else

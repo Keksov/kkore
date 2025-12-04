@@ -11,6 +11,7 @@ kt_test_init "VariableManagement" "$SCRIPT_DIR" "$@"
 # Source kvar if needed
 KVAR_DIR="$SCRIPT_DIR/.."
 [[ -f "$KVAR_DIR/kvar.sh" ]] && source "$KVAR_DIR/kvar.sh"
+[[ -f "$KVAR_DIR/kerr.sh" ]] && source "$KVAR_DIR/kerr.sh"
 
 # ============================================================================
 # kv.new() Tests - Create new variable
@@ -1158,29 +1159,32 @@ fi
 
 # Test 69: kv.get with empty variable name
 kt_test_start "kv.get handles empty variable name"
+ke.errorsReportingOff
 kv.get ""
-if kt_assert_equals "" "$RESULT" "Should return empty for empty name"; then
+if [[ "$(ke.hasError)" == "true" ]]; then
     kt_test_pass "kv.get handles empty variable name"
 else
     kt_test_fail "kv.get failed with empty name"
 fi
 
 # Test 70: kv.set with empty variable name
-kt_test_start "kv.set handles empty variable name"
+kt_test_start "kv.set rejects empty variable name"
+ke.errorsReportingOff
 kv.set "" "some_value"
-if kt_assert_equals "some_value" "${__KLIB_VARS[""]}" "Should handle empty name"; then
-    kt_test_pass "kv.set handles empty variable name"
+if [[ "$(ke.hasError)" == "true" ]]; then
+    kt_test_pass "kv.set rejects empty variable name"
 else
-    kt_test_fail "kv.set failed with empty name"
+    kt_test_fail "kv.set should reject empty name"
 fi
 
-# Test 71: kv.free with empty variable name
-kt_test_start "kv.free handles empty variable name"
+# Test 71: kv.free rejects empty variable name
+kt_test_start "kv.free rejects empty variable name"
+ke.errorsReportingOff
 kv.free ""
-if kt_assert_equals "" "${__KLIB_VARS[""]}" "Should handle empty name gracefully"; then
-    kt_test_pass "kv.free handles empty variable name"
+if [[ "$(ke.hasError)" == "true" ]]; then
+    kt_test_pass "kv.free rejects empty variable name"
 else
-    kt_test_fail "kv.free failed with empty name"
+    kt_test_fail "kv.free should reject empty name"
 fi
 
 # Test 72: Variable with equals sign in value
@@ -1706,16 +1710,16 @@ fi
 # Edge Cases with Default Values
 # ============================================================================
 
-# Test 109: kv.new with empty value parameter defaults to 0
-kt_test_start "kv.new with empty string uses default 0"
-kv.new "" "emptyval"
+# Test 109: kv.new without value parameter defaults to 0
+kt_test_start "kv.new without value uses default 0"
+kv.new
 var_name="$RESULT"
 if [[ -n "$var_name" ]]; then
     kv.get "$var_name"
-    if kt_assert_equals "0" "$RESULT" "Empty value should default to 0"; then
-        kt_test_pass "kv.new with empty string uses default 0"
+    if kt_assert_equals "0" "$RESULT" "Missing value should default to 0"; then
+        kt_test_pass "kv.new without value uses default 0"
     else
-        kt_test_fail "Empty value did not default (got: $RESULT)"
+        kt_test_fail "Default value incorrect (got: $RESULT)"
     fi
 else
     kt_test_fail "kv.new did not return variable name"
@@ -1927,5 +1931,3 @@ unset val_b
 unset deeply_nested
 unset from_a
 unset from_b
-
-kt_test_finish

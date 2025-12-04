@@ -1,5 +1,11 @@
 #!/bin/bash
 
+# Prevent multiple sourcing
+if [[ -n "$__KLIB_USE_SOURCED" ]]; then
+    return
+fi
+declare -g __KLIB_USE_SOURCED=1
+
 # Associative arrays for caching
 declare -gA _KK_script_dir_cache
 declare -gA _KK_use_cache

@@ -1,7 +1,12 @@
 #!/bin/bash
 
-#
-declare -A __KLIB_VARS
+# Prevent multiple sourcing
+if [[ -n "$__KLIB_VARS_SOURCED" ]]; then
+    return
+fi
+declare -g __KLIB_VARS_SOURCED=1
+
+declare -gA __KLIB_VARS
 
 # Generate unique variable name with random ID
 kv.new() {
@@ -26,12 +31,20 @@ kv.new() {
 kv.set() {
     local var_name="$1"
     local value="$2"
+    if [[ -z "$var_name" ]]; then
+        ke.reportError "variable name cannot be empty"
+        return
+    fi
     __KLIB_VARS["$var_name"]="$value"
 }
 
 # Get variable value from global storage
 kv.get() {
     local var_name="$1"
+    if [[ -z "$var_name" ]]; then
+        ke.reportError "variable name cannot be empty"
+        return
+    fi
     if [[ $BASH_SUBSHELL -gt 0 ]]; then
         # In subshell: echo the value
         echo -n "${__KLIB_VARS[$var_name]}"
@@ -43,5 +56,9 @@ kv.get() {
 # Delete variable (cleanup)
 kv.free() {
     local var_name="$1"
+    if [[ -z "$var_name" ]]; then
+        ke.reportError "variable name cannot be empty"
+        return
+    fi
     unset __KLIB_VARS["$var_name"]
 }
