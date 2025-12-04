@@ -5,8 +5,14 @@ declare -A __KLIB_VARS
 
 # Generate unique variable name with random ID
 kv.new() {
-    local var_name="${2:-__var}_${RANDOM}_$$"
+    #local caller_func="${FUNCNAME[1]:-main}"
+    #local stack_depth=${#FUNCNAME[@]}
+    #local subshell_level=$BASH_SUBSHELL
+    #local var_name="${2:-__var}_${caller_func}_${stack_depth}_${subshell_level}_${RANDOM}_$$"
+
+    local var_name="${2:-__var}_${BASH_SUBSHELL}_${#FUNCNAME[@]}_${FUNCNAME[1]:-main}_${BASH_LINENO[0]}_${RANDOM}_$$"
     local initial_value="${1-0}"
+
     __KLIB_VARS["$var_name"]="$initial_value"
     if [[ $BASH_SUBSHELL -gt 0 ]]; then
         # In subshell: echo the value

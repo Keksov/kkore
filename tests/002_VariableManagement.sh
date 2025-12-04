@@ -1115,6 +1115,627 @@ else
     kt_test_fail "State preservation failed (got: $RESULT)"
 fi
 
+# ============================================================================
+# Additional Edge Cases and Boundary Tests
+# ============================================================================
+
+# Test 66: kv.new with Unicode characters in value
+kt_test_start "kv.new handles Unicode characters in value"
+unicode_value="Привет мир 你好世界 🎉"
+kv.new "$unicode_value" "unicode_var"
+var_name="$RESULT"
+kv.get "$var_name"
+if kt_assert_equals "$unicode_value" "$RESULT" "Should handle Unicode characters"; then
+    kt_test_pass "kv.new handles Unicode characters in value"
+else
+    kt_test_fail "kv.new failed with Unicode value (got: $RESULT)"
+fi
+
+# Test 67: kv.set with null byte handling
+kt_test_start "kv.set handles values with special shell characters"
+special_shell_value='$HOME $(echo test) `whoami` ${PATH}'
+kv.new "initial"
+var_name="$RESULT"
+kv.set "$var_name" "$special_shell_value"
+kv.get "$var_name"
+if kt_assert_equals "$special_shell_value" "$RESULT" "Should preserve shell special characters literally"; then
+    kt_test_pass "kv.set handles values with special shell characters"
+else
+    kt_test_fail "kv.set failed with shell special characters"
+fi
+
+# Test 68: kv.new with backslash characters
+kt_test_start "kv.new handles backslash characters"
+backslash_value='path\\to\\file\nwith\\escapes'
+kv.new "$backslash_value" "backslash_var"
+var_name="$RESULT"
+kv.get "$var_name"
+if kt_assert_equals "$backslash_value" "$RESULT" "Should handle backslashes"; then
+    kt_test_pass "kv.new handles backslash characters"
+else
+    kt_test_fail "kv.new failed with backslash value"
+fi
+
+# Test 69: kv.get with empty variable name
+kt_test_start "kv.get handles empty variable name"
+kv.get ""
+if kt_assert_equals "" "$RESULT" "Should return empty for empty name"; then
+    kt_test_pass "kv.get handles empty variable name"
+else
+    kt_test_fail "kv.get failed with empty name"
+fi
+
+# Test 70: kv.set with empty variable name
+kt_test_start "kv.set handles empty variable name"
+kv.set "" "some_value"
+if kt_assert_equals "some_value" "${__KLIB_VARS[""]}" "Should handle empty name"; then
+    kt_test_pass "kv.set handles empty variable name"
+else
+    kt_test_fail "kv.set failed with empty name"
+fi
+
+# Test 71: kv.free with empty variable name
+kt_test_start "kv.free handles empty variable name"
+kv.free ""
+if kt_assert_equals "" "${__KLIB_VARS[""]}" "Should handle empty name gracefully"; then
+    kt_test_pass "kv.free handles empty variable name"
+else
+    kt_test_fail "kv.free failed with empty name"
+fi
+
+# Test 72: Variable with equals sign in value
+kt_test_start "kv.set handles equals sign in value"
+kv.new "initial"
+var_name="$RESULT"
+kv.set "$var_name" "key=value=another"
+kv.get "$var_name"
+if kt_assert_equals "key=value=another" "$RESULT" "Should handle equals signs"; then
+    kt_test_pass "kv.set handles equals sign in value"
+else
+    kt_test_fail "kv.set failed with equals sign in value"
+fi
+
+# Test 73: Variable with quotes in value
+kt_test_start "kv.set handles quotes in value"
+kv.new "initial"
+var_name="$RESULT"
+quoted_value='"double" and '\''single'\'' quotes'
+kv.set "$var_name" "$quoted_value"
+kv.get "$var_name"
+if kt_assert_equals "$quoted_value" "$RESULT" "Should handle quotes"; then
+    kt_test_pass "kv.set handles quotes in value"
+else
+    kt_test_fail "kv.set failed with quotes in value"
+fi
+
+# Test 74: Rapid sequential set/get operations
+kt_test_start "Rapid sequential set/get operations"
+kv.new "0"
+rapid_var="$RESULT"
+success=true
+for i in {1..50}; do
+    kv.set "$rapid_var" "$i"
+    kv.get "$rapid_var"
+    if [[ "$RESULT" != "$i" ]]; then
+        success=false
+        break
+    fi
+done
+if [[ "$success" == true ]]; then
+    kt_test_pass "Rapid sequential set/get operations"
+else
+    kt_test_fail "Rapid set/get failed at iteration $i"
+fi
+
+# Test 75: Variable name with dots
+kt_test_start "kv.new handles dots in prefix"
+kv.new "value" "my.prefix.name"
+var_name="$RESULT"
+if kt_assert_contains "$var_name" "my.prefix.name" "Should use prefix with dots"; then
+    kt_test_pass "kv.new handles dots in prefix"
+else
+    kt_test_fail "kv.new failed with dots in prefix"
+fi
+
+# Test 76: Variable name with colons
+kt_test_start "kv.new handles colons in prefix"
+kv.new "value" "namespace:var"
+var_name="$RESULT"
+if kt_assert_contains "$var_name" "namespace:var" "Should use prefix with colons"; then
+    kt_test_pass "kv.new handles colons in prefix"
+else
+    kt_test_fail "kv.new failed with colons in prefix"
+fi
+
+# Test 77: kv.set overwrites with shorter value
+kt_test_start "kv.set correctly overwrites with shorter value"
+kv.new "this_is_a_very_long_initial_value_that_should_be_completely_replaced"
+var_name="$RESULT"
+kv.set "$var_name" "short"
+kv.get "$var_name"
+if kt_assert_equals "short" "$RESULT" "Should completely replace with shorter value"; then
+    kt_test_pass "kv.set correctly overwrites with shorter value"
+else
+    kt_test_fail "kv.set failed to overwrite with shorter value"
+fi
+
+# Test 78: Multiple variables with same value
+kt_test_start "Multiple variables can have same value"
+kv.new "shared_value"
+var1="$RESULT"
+kv.new "shared_value"
+var2="$RESULT"
+kv.new "shared_value"
+var3="$RESULT"
+kv.get "$var1"
+val1="$RESULT"
+kv.get "$var2"
+val2="$RESULT"
+kv.get "$var3"
+val3="$RESULT"
+if [[ "$val1" == "shared_value" ]] && [[ "$val2" == "shared_value" ]] && [[ "$val3" == "shared_value" ]]; then
+    kt_test_pass "Multiple variables can have same value"
+else
+    kt_test_fail "Multiple variables with same value failed"
+fi
+
+# Test 79: kv.free doesn't affect other variables
+kt_test_start "kv.free doesn't affect other variables"
+kv.new "value1"
+var1="$RESULT"
+kv.new "value2"
+var2="$RESULT"
+kv.free "$var1"
+kv.get "$var2"
+if kt_assert_equals "value2" "$RESULT" "Other variables should remain intact"; then
+    kt_test_pass "kv.free doesn't affect other variables"
+else
+    kt_test_fail "kv.free affected other variables"
+fi
+
+# Test 80: Variable with array-like value
+kt_test_start "kv.set handles array-like string value"
+kv.new "initial"
+var_name="$RESULT"
+array_like="[1, 2, 3, 4, 5]"
+kv.set "$var_name" "$array_like"
+kv.get "$var_name"
+if kt_assert_equals "$array_like" "$RESULT" "Should handle array-like strings"; then
+    kt_test_pass "kv.set handles array-like string value"
+else
+    kt_test_fail "kv.set failed with array-like value"
+fi
+
+# Test 81: Variable with JSON-like value
+kt_test_start "kv.set handles JSON-like string value"
+kv.new "initial"
+var_name="$RESULT"
+json_like='{"key": "value", "number": 42, "nested": {"a": 1}}'
+kv.set "$var_name" "$json_like"
+kv.get "$var_name"
+if kt_assert_equals "$json_like" "$RESULT" "Should handle JSON-like strings"; then
+    kt_test_pass "kv.set handles JSON-like string value"
+else
+    kt_test_fail "kv.set failed with JSON-like value"
+fi
+
+# Test 82: Variable with multiline value
+kt_test_start "kv.set handles multiline value"
+kv.new "initial"
+var_name="$RESULT"
+multiline_value="Line 1
+Line 2
+Line 3"
+kv.set "$var_name" "$multiline_value"
+kv.get "$var_name"
+if kt_assert_equals "$multiline_value" "$RESULT" "Should handle multiline values"; then
+    kt_test_pass "kv.set handles multiline value"
+else
+    kt_test_fail "kv.set failed with multiline value"
+fi
+
+# Test 83: Variable with leading/trailing whitespace
+kt_test_start "kv.set preserves leading/trailing whitespace"
+kv.new "initial"
+var_name="$RESULT"
+whitespace_value="   leading and trailing   "
+kv.set "$var_name" "$whitespace_value"
+kv.get "$var_name"
+if kt_assert_equals "$whitespace_value" "$RESULT" "Should preserve whitespace"; then
+    kt_test_pass "kv.set preserves leading/trailing whitespace"
+else
+    kt_test_fail "kv.set failed to preserve whitespace"
+fi
+
+# Test 84: Variable with pipe character
+kt_test_start "kv.set handles pipe character"
+kv.new "initial"
+var_name="$RESULT"
+pipe_value="cmd1 | cmd2 | cmd3"
+kv.set "$var_name" "$pipe_value"
+kv.get "$var_name"
+if kt_assert_equals "$pipe_value" "$RESULT" "Should handle pipe characters"; then
+    kt_test_pass "kv.set handles pipe character"
+else
+    kt_test_fail "kv.set failed with pipe character"
+fi
+
+# Test 85: Variable with redirect characters
+kt_test_start "kv.set handles redirect characters"
+kv.new "initial"
+var_name="$RESULT"
+redirect_value="input < file > output 2>&1"
+kv.set "$var_name" "$redirect_value"
+kv.get "$var_name"
+if kt_assert_equals "$redirect_value" "$RESULT" "Should handle redirect characters"; then
+    kt_test_pass "kv.set handles redirect characters"
+else
+    kt_test_fail "kv.set failed with redirect characters"
+fi
+
+# ============================================================================
+# Stress and Boundary Tests
+# ============================================================================
+
+# Test 86: Create and free many variables in sequence
+kt_test_start "Create and free many variables in sequence"
+for i in {1..50}; do
+    kv.new "temp_$i"
+    kv.free "$RESULT"
+done
+kt_test_pass "Create and free many variables in sequence"
+
+# Test 87: Variable value with only special characters
+kt_test_start "kv.set handles value with only special characters"
+kv.new "initial"
+var_name="$RESULT"
+special_only="!@#\$%^&*()_+-=[]{}|;':\",./<>?"
+kv.set "$var_name" "$special_only"
+kv.get "$var_name"
+if kt_assert_equals "$special_only" "$RESULT" "Should handle special-only values"; then
+    kt_test_pass "kv.set handles value with only special characters"
+else
+    kt_test_fail "kv.set failed with special-only value"
+fi
+
+# Test 88: Variable with numeric-only name prefix
+kt_test_start "kv.new handles numeric-only prefix"
+kv.new "value" "12345"
+var_name="$RESULT"
+if kt_assert_contains "$var_name" "12345" "Should use numeric prefix"; then
+    kt_test_pass "kv.new handles numeric-only prefix"
+else
+    kt_test_fail "kv.new failed with numeric prefix"
+fi
+
+# Test 89: Verify RESULT is set correctly after kv.new
+kt_test_start "RESULT is set correctly after kv.new"
+RESULT=""
+kv.new "test_value"
+if [[ -n "$RESULT" ]] && [[ "$RESULT" != "" ]]; then
+    kt_test_pass "RESULT is set correctly after kv.new"
+else
+    kt_test_fail "RESULT was not set after kv.new"
+fi
+
+# Test 90: Verify RESULT is set correctly after kv.get
+kt_test_start "RESULT is set correctly after kv.get"
+kv.new "expected_value"
+var_name="$RESULT"
+RESULT=""
+kv.get "$var_name"
+if kt_assert_equals "expected_value" "$RESULT" "RESULT should contain the value"; then
+    kt_test_pass "RESULT is set correctly after kv.get"
+else
+    kt_test_fail "RESULT was not set correctly after kv.get"
+fi
+
+# ============================================================================
+# Subshell Tests - BASH_SUBSHELL handling
+# ============================================================================
+
+# Test 91: kv.new handles variable name with BASH_SUBSHELL level
+kt_test_start "kv.new variable name includes subshell level"
+kv.new "sub_test"
+var_name1="$RESULT"
+if kt_assert_contains "$var_name1" "_0_" "Should contain BASH_SUBSHELL=0 level"; then
+    kt_test_pass "kv.new variable name includes subshell level"
+else
+    kt_test_fail "Variable name does not contain subshell level"
+fi
+
+# Test 92: kv.new variable name includes stack depth
+kt_test_start "kv.new variable name includes stack depth"
+kv.new "depth_test"
+main_var="$RESULT"
+test_depth_func() {
+    kv.new "in_func"
+}
+test_depth_func
+func_var="$RESULT"
+if [[ "$main_var" != "$func_var" ]]; then
+    kt_test_pass "kv.new variable name includes stack depth"
+else
+    kt_test_fail "Variable names should differ by stack depth"
+fi
+
+# Test 93: Variable name components include RANDOM
+kt_test_start "Variable name includes RANDOM component"
+kv.new "value1"
+name1="$RESULT"
+kv.new "value2"
+name2="$RESULT"
+# Extract RANDOM part if pattern is __var_subshell_depth_func_line_RANDOM_PID
+# Names should differ because RANDOM differs
+if [[ "$name1" != "$name2" ]]; then
+    kt_test_pass "Variable name includes RANDOM component"
+else
+    kt_test_fail "Variable names are identical (should contain RANDOM)"
+fi
+
+# Test 94: Variable name components include process ID
+kt_test_start "Variable name includes process ID"
+kv.new "test_value" "prefix"
+var_name="$RESULT"
+# Check that variable name contains $$
+if kt_assert_contains "$var_name" "$$" "Should contain process ID"; then
+    kt_test_pass "Variable name includes process ID"
+else
+    kt_test_fail "Variable name does not contain process ID"
+fi
+
+# Test 95: Variable name components include function name
+kt_test_start "Variable name includes function name in nested call"
+test_func_for_name() {
+    kv.new "func_value"
+}
+test_func_for_name
+var_name="$RESULT"
+if kt_assert_contains "$var_name" "test_func_for_name" "Should contain function name"; then
+    kt_test_pass "Variable name includes function name in nested call"
+else
+    kt_test_fail "Variable name does not contain function name"
+fi
+
+# ============================================================================
+# Parameter Validation Tests
+# ============================================================================
+
+# Test 96: kv.new with only value parameter (no prefix)
+kt_test_start "kv.new works with only value parameter"
+kv.new "value_only"
+var_name="$RESULT"
+kv.get "$var_name"
+if kt_assert_equals "value_only" "$RESULT" "Should work with single parameter"; then
+    kt_test_pass "kv.new works with only value parameter"
+else
+    kt_test_fail "kv.new failed with single parameter (got: $RESULT)"
+fi
+
+# Test 97: kv.new respects parameter order (value first, prefix second)
+kt_test_start "kv.new respects parameter order"
+kv.new "myvalue" "myprefix"
+var_name="$RESULT"
+if kt_assert_contains "$var_name" "myprefix" "Prefix should be in variable name"; then
+    kv.get "$var_name"
+    if kt_assert_equals "myvalue" "$RESULT" "Value should be myvalue, not myprefix"; then
+        kt_test_pass "kv.new respects parameter order"
+    else
+        kt_test_fail "kv.new parameter order incorrect (got value: $RESULT)"
+    fi
+else
+    kt_test_fail "kv.new did not use prefix correctly"
+fi
+
+# Test 98: kv.new with numeric prefix
+kt_test_start "kv.new works with numeric prefix"
+kv.new "numvalue" "999"
+var_name="$RESULT"
+if kt_assert_contains "$var_name" "999" "Should use numeric prefix"; then
+    kt_test_pass "kv.new works with numeric prefix"
+else
+    kt_test_fail "kv.new failed with numeric prefix"
+fi
+
+# Test 99: kv.new prefix with special characters
+kt_test_start "kv.new prefix with special characters"
+kv.new "value" "pre-fix_123"
+var_name="$RESULT"
+if kt_assert_contains "$var_name" "pre-fix_123" "Should preserve special chars in prefix"; then
+    kt_test_pass "kv.new prefix with special characters"
+else
+    kt_test_fail "kv.new failed with special prefix characters"
+fi
+
+# ============================================================================
+# Variable Storage Integrity Tests
+# ============================================================================
+
+# Test 100: __KLIB_VARS array is global and persists
+kt_test_start "__KLIB_VARS array persists across calls"
+initial_count=${#__KLIB_VARS[@]}
+kv.new "persist1"
+var1="$RESULT"
+kv.new "persist2"
+var2="$RESULT"
+final_count=${#__KLIB_VARS[@]}
+if [[ $final_count -gt $initial_count ]]; then
+    kt_test_pass "__KLIB_VARS array persists across calls"
+else
+    kt_test_fail "__KLIB_VARS count did not increase"
+fi
+
+# Test 101: Direct array access returns same value as kv.get
+kt_test_start "Direct array access matches kv.get"
+kv.new "array_test_value"
+var_name="$RESULT"
+kv.get "$var_name"
+get_result="$RESULT"
+array_result="${__KLIB_VARS[$var_name]}"
+if kt_assert_equals "$get_result" "$array_result" "Array access should match kv.get"; then
+    kt_test_pass "Direct array access matches kv.get"
+else
+    kt_test_fail "Array access mismatch (kv.get: $get_result, array: $array_result)"
+fi
+
+# Test 102: kv.set directly modifies __KLIB_VARS
+kt_test_start "kv.set directly modifies __KLIB_VARS array"
+kv.new "before_direct"
+var_name="$RESULT"
+kv.set "$var_name" "after_direct"
+if kt_assert_equals "after_direct" "${__KLIB_VARS[$var_name]}" "Array should be updated"; then
+    kt_test_pass "kv.set directly modifies __KLIB_VARS array"
+else
+    kt_test_fail "kv.set did not update array (got: ${__KLIB_VARS[$var_name]})"
+fi
+
+# Test 103: kv.free unsets array element
+kt_test_start "kv.free unsets array element"
+kv.new "to_unset"
+var_name="$RESULT"
+kv.free "$var_name"
+if [[ -z "${__KLIB_VARS[$var_name]}" ]]; then
+    kt_test_pass "kv.free unsets array element"
+else
+    kt_test_fail "kv.free did not unset element (value: ${__KLIB_VARS[$var_name]})"
+fi
+
+# ============================================================================
+# Large Scale and Stress Tests
+# ============================================================================
+
+# Test 104: Handle 100 variables simultaneously
+kt_test_start "Handle 100 variables simultaneously"
+declare -a var_array
+for i in {1..100}; do
+    kv.new "value_$i"
+    var_array+=("$RESULT")
+done
+success=true
+for i in {0..99}; do
+    kv.get "${var_array[$i]}"
+    if [[ "$RESULT" != "value_$((i+1))" ]]; then
+        success=false
+        break
+    fi
+done
+if [[ "$success" == true ]]; then
+    kt_test_pass "Handle 100 variables simultaneously"
+else
+    kt_test_fail "Failed to manage 100 variables (failed at index $i)"
+fi
+
+# Test 105: Large value (10KB string)
+kt_test_start "Handle large values (10KB)"
+kv.new "init"
+var_name="$RESULT"
+large_value=$(printf 'x%.0s' {1..10240})
+kv.set "$var_name" "$large_value"
+kv.get "$var_name"
+if [[ ${#RESULT} -eq 10240 ]]; then
+    kt_test_pass "Handle large values (10KB)"
+else
+    kt_test_fail "Large value size mismatch (expected 10240, got ${#RESULT})"
+fi
+
+# Test 106: Rapid free and recreate same prefix
+kt_test_start "Rapid free and recreate with same prefix"
+kv.new "val1" "rapid"
+var1="$RESULT"
+kv.free "$var1"
+kv.new "val2" "rapid"
+var2="$RESULT"
+kv.get "$var2"
+# Names should differ because of RANDOM component, but both should use "rapid" prefix
+if [[ "$var1" != "$var2" ]] && kt_assert_equals "val2" "$RESULT" "Should recreate with different name"; then
+    kt_test_pass "Rapid free and recreate with same prefix"
+else
+    kt_test_fail "Rapid recreate failed"
+fi
+
+# ============================================================================
+# Function Scope Edge Cases
+# ============================================================================
+
+# Test 107: Variable created in function accessible from parent scope
+kt_test_start "Variable created in nested function accessible from parent"
+nested_create() {
+    deep_nest() {
+        kv.new "deeply_nested"
+    }
+    deep_nest
+}
+nested_create
+deep_var="$RESULT"
+kv.get "$deep_var"
+if kt_assert_equals "deeply_nested" "$RESULT" "Should access deeply nested variable"; then
+    kt_test_pass "Variable created in nested function accessible from parent"
+else
+    kt_test_fail "Deep nested variable access failed"
+fi
+
+# Test 108: Multiple function calls with variables
+kt_test_start "Multiple function calls with variable management"
+func_a() {
+    kv.new "from_a"
+    # RESULT is set by kv.new
+}
+func_b() {
+    kv.new "from_b"
+    # RESULT is set by kv.new
+}
+func_a
+var_a="$RESULT"
+func_b
+var_b="$RESULT"
+if [[ -n "$var_a" ]] && [[ -n "$var_b" ]]; then
+    kv.get "$var_a"
+    val_a="$RESULT"
+    kv.get "$var_b"
+    val_b="$RESULT"
+    if [[ "$val_a" == "from_a" ]] && [[ "$val_b" == "from_b" ]]; then
+        kt_test_pass "Multiple function calls with variable management"
+    else
+        kt_test_fail "Function variable values incorrect (a: $val_a, b: $val_b)"
+    fi
+else
+    kt_test_fail "Functions did not return variable names"
+fi
+
+# ============================================================================
+# Edge Cases with Default Values
+# ============================================================================
+
+# Test 109: kv.new with empty value parameter defaults to 0
+kt_test_start "kv.new with empty string uses default 0"
+kv.new "" "emptyval"
+var_name="$RESULT"
+if [[ -n "$var_name" ]]; then
+    kv.get "$var_name"
+    if kt_assert_equals "0" "$RESULT" "Empty value should default to 0"; then
+        kt_test_pass "kv.new with empty string uses default 0"
+    else
+        kt_test_fail "Empty value did not default (got: $RESULT)"
+    fi
+else
+    kt_test_fail "kv.new did not return variable name"
+fi
+
+# Test 110: kv.new no parameter creates variable with value 0
+kt_test_start "kv.new with no parameter defaults to 0"
+kv.new
+var1="$RESULT"
+if [[ -n "$var1" ]]; then
+    kv.get "$var1"
+    if kt_assert_equals "0" "$RESULT" "No parameter should default to 0"; then
+        kt_test_pass "kv.new with no parameter defaults to 0"
+    else
+        kt_test_fail "Default value incorrect (got: $RESULT)"
+    fi
+else
+    kt_test_fail "kv.new did not return variable name"
+fi
+
 # Cleanup
 unset __KLIB_VARS
 unset RESULT
@@ -1254,3 +1875,57 @@ unset target_var
 unset var_a
 unset var_b
 unset var_c
+unset unicode_value
+unset special_shell_value
+unset backslash_value
+unset quoted_value
+unset rapid_var
+unset success
+unset array_like
+unset json_like
+unset multiline_value
+unset pipe_value
+unset redirect_value
+unset special_only
+unset result
+unset name1
+unset name2
+unset var_name1
+unset main_var
+unset test_depth_func
+unset func_var
+unset prefix
+unset test_func_for_name
+unset value_only
+unset myprefix
+unset myvalue
+unset numvalue
+unset emptyval
+unset initial_count
+unset persist1
+unset persist2
+unset final_count
+unset get_result
+unset array_result
+unset before_direct
+unset after_direct
+unset to_unset
+unset var_array
+unset large_value
+unset rapid
+unset val1
+unset val2
+unset nested_create
+unset deep_nest
+unset deep_var
+unset func_a
+unset func_b
+unset var_a
+unset var_b
+unset val_a
+unset val_b
+unset deeply_nested
+unset from_a
+unset from_b
+
+kt_test_finish
