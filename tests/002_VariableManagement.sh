@@ -1740,8 +1740,57 @@ else
     kt_test_fail "kv.new did not return variable name"
 fi
 
+# ============================================================================
+# Frame Context Tests
+# ============================================================================
+
+# Test 111: kv.framePush and kv.frameCurrent track active frame
+kt_test_start "kv.framePush and kv.frameCurrent track active frame"
+kv.framePush "instance_one" "ClassOne"
+frame_one="$RESULT"
+kv.frameCurrent
+current_frame="$RESULT"
+if [[ -n "$frame_one" ]] && [[ "$current_frame" == "$frame_one" ]]; then
+    kt_test_pass "kv.framePush and kv.frameCurrent track active frame"
+else
+    kt_test_fail "Frame tracking failed (frame: $frame_one, current: $current_frame)"
+fi
+kv.framePop >/dev/null
+
+# Test 112: kv.frameInstance and kv.frameClass return stored metadata
+kt_test_start "kv.frameInstance and kv.frameClass return stored metadata"
+kv.framePush "instance_two" "ClassTwo"
+frame_two="$RESULT"
+kv.frameInstance "$frame_two"
+frame_instance="$RESULT"
+kv.frameClass "$frame_two"
+frame_class="$RESULT"
+if [[ "$frame_instance" == "instance_two" ]] && [[ "$frame_class" == "ClassTwo" ]]; then
+    kt_test_pass "kv.frameInstance and kv.frameClass return stored metadata"
+else
+    kt_test_fail "Frame metadata mismatch (instance: $frame_instance, class: $frame_class)"
+fi
+kv.framePop >/dev/null
+
+# Test 113: frame helpers stay silent in command substitution
+kt_test_start "Frame helpers stay silent in command substitution"
+frame_subshell_output=$(kv.framePush "instance_three" "ClassThree")
+frame_three="$RESULT"
+current_subshell_output=$(kv.frameCurrent)
+current_frame_after_subshell="$RESULT"
+if [[ -z "$frame_subshell_output" ]] && [[ -z "$current_subshell_output" ]] && \
+   [[ -n "$frame_three" ]] && [[ "$current_frame_after_subshell" == "$frame_three" ]]; then
+    kt_test_pass "Frame helpers stay silent in command substitution"
+else
+    kt_test_fail "Frame helper output leak detected (push: '$frame_subshell_output', current: '$current_subshell_output', frame: '$frame_three', current_frame: '$current_frame_after_subshell')"
+fi
+kv.framePop >/dev/null
+
 # Cleanup
 unset __KLIB_VARS
+unset __KLIB_FRAME_STACK
+unset __KLIB_FRAME_INSTANCE
+unset __KLIB_FRAME_CLASS
 unset RESULT
 unset var_name
 unset var_name_1
@@ -1843,6 +1892,15 @@ unset text
 unset append_func
 unset suffix
 unset modify_via_param
+unset frame_one
+unset frame_two
+unset frame_three
+unset current_frame
+unset current_frame_after_subshell
+unset frame_instance
+unset frame_class
+unset frame_subshell_output
+unset current_subshell_output
 unset var_name_to_modify
 unset func_with_cleanup
 unset first_modifier

@@ -7,6 +7,20 @@ fi
 declare -g __KLIB_VARS_SOURCED=1
 
 declare -gA __KLIB_VARS
+declare -ga __KLIB_FRAME_STACK=()
+declare -gA __KLIB_FRAME_INSTANCE=()
+declare -gA __KLIB_FRAME_CLASS=()
+
+kv._set_result() {
+    local value="$1"
+    local allow_echo="${2:-true}"
+
+    RESULT="$value"
+    if [[ $BASH_SUBSHELL -gt 0 && "$allow_echo" == "true" ]]; then
+        echo -n "$value"
+        return
+    fi
+}
 
 # Generate unique variable name with random ID
 kv.new() {
@@ -19,12 +33,69 @@ kv.new() {
     local initial_value="${1-0}"
 
     __KLIB_VARS["$var_name"]="$initial_value"
-    if [[ $BASH_SUBSHELL -gt 0 ]]; then
-        # In subshell: echo the value
-        echo -n "$var_name"
-        return
+    kv._set_result "$var_name"
+}
+
+kv.framePush() {
+    local instance_name="$1"
+    local class_name="$2"
+
+    if [[ -z "$instance_name" || -z "$class_name" ]]; then
+        ke.reportError "frame push requires instance and class"
+        return 1
     fi
-    RESULT="$var_name"
+
+    local frame_id="__frame_${BASH_SUBSHELL}_${#FUNCNAME[@]}_${FUNCNAME[1]:-main}_${BASH_LINENO[0]}_${RANDOM}_$$"
+    __KLIB_FRAME_STACK+=("$frame_id")
+    __KLIB_FRAME_INSTANCE["$frame_id"]="$instance_name"
+    __KLIB_FRAME_CLASS["$frame_id"]="$class_name"
+
+    kv._set_result "$frame_id" false
+}
+
+kv.frameCurrent() {
+    local frame_count=${#__KLIB_FRAME_STACK[@]}
+    if (( frame_count == 0 )); then
+        kv._set_result "" false
+        return 1
+    fi
+
+    kv._set_result "${__KLIB_FRAME_STACK[$((frame_count - 1))]}" false
+}
+
+kv.frameInstance() {
+    local frame_id="$1"
+    if [[ -z "$frame_id" ]]; then
+        ke.reportError "frame id cannot be empty"
+        return 1
+    fi
+
+    kv._set_result "${__KLIB_FRAME_INSTANCE[$frame_id]}" false
+}
+
+kv.frameClass() {
+    local frame_id="$1"
+    if [[ -z "$frame_id" ]]; then
+        ke.reportError "frame id cannot be empty"
+        return 1
+    fi
+
+    kv._set_result "${__KLIB_FRAME_CLASS[$frame_id]}" false
+}
+
+kv.framePop() {
+    local frame_count=${#__KLIB_FRAME_STACK[@]}
+    if (( frame_count == 0 )); then
+        kv._set_result "" false
+        return 1
+    fi
+
+    local frame_id="${__KLIB_FRAME_STACK[$((frame_count - 1))]}"
+    unset '__KLIB_FRAME_STACK[$((frame_count - 1))]'
+    unset __KLIB_FRAME_INSTANCE["$frame_id"]
+    unset __KLIB_FRAME_CLASS["$frame_id"]
+
+    kv._set_result "$frame_id" false
 }
 
 # Set variable value in global storage
