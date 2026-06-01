@@ -50,7 +50,8 @@ kk.use() {
     
     [[ -z "$filename" ]] && { echo "Error: filename required" >&2; return 2; }
     
-    local dir=$(kk.getScriptDir "${BASH_SOURCE[0]}")
+    # Resolve relative to the caller of kk.use, not kuse.sh itself
+    local dir=$(kk.getScriptDir "${BASH_SOURCE[1]:-$0}")
     local file="${dir}/${filename}"
     
     [[ -f "$file" ]] || { echo "Error: $file not found" >&2; return 2; }

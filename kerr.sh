@@ -19,7 +19,19 @@ declare -g __KLIB_ERR_SOURCED=1
 # Control flag for error trap (allow code to suppress intentional errors)
 declare -g TRAP_ERRORS_ENABLED=true
 declare -g REPORT_ERRORS_ENABLED=true
+# When true, ke.onError terminates the shell with `exit`; otherwise it returns
+# the error code. Default is false so sourcing this library into an interactive
+# or test shell cannot kill the whole session from an ERR trap.
+declare -g EXIT_ON_ERROR_ENABLED=false
 declare -g __KLIB_HAS_ERRROR=false
+
+ke.exitOnErrorOn() {
+    EXIT_ON_ERROR_ENABLED=true
+}
+
+ke.exitOnErrorOff() {
+    EXIT_ON_ERROR_ENABLED=false
+}
 
 ke.errorsReportingOff() {
     REPORT_ERRORS_ENABLED=false
@@ -113,9 +125,11 @@ ke.onError() {
     local func_name="${FUNCNAME[1]:-main}"
     
     ke.reportError "" "${BASH_SOURCE[1]:-$0}" "$func_name" "$line_number" "$exit_code" "$last_command"
-    
-    exit $exit_code
-    #return 0
+
+    if [[ "$EXIT_ON_ERROR_ENABLED" == "true" ]]; then
+        exit $exit_code
+    fi
+    return $exit_code
 }
 
 ke.setTrap() {
