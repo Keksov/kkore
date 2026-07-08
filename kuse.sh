@@ -15,13 +15,17 @@ kk.getScriptDir() {
     local source_file="${1:-${BASH_SOURCE[1]:-$0}}"
     
     if [[ -n "${_KK_script_dir_cache[$source_file]}" ]]; then
-        echo "${_KK_script_dir_cache[$source_file]}"
+        RESULT="${_KK_script_dir_cache[$source_file]}"
+        echo "$RESULT"
         return 0
     fi
-    
+
     local result="$(cd "$(dirname "$source_file")" && pwd)"
 
     _KK_script_dir_cache[$source_file]="$result"
+    # Set RESULT too so callers can read it without a $(...) fork (echo kept for
+    # backward compatibility with existing $(kk.getScriptDir) call sites).
+    RESULT="$result"
     echo "$result"
 }
 

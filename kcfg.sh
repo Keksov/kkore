@@ -6,7 +6,7 @@ if [[ -n "$__KLIB_CFG_SOURCED" ]]; then
 fi
 declare -g __KLIB_CFG_SOURCED=1
 
-declare -A __KLIB_CONFIG
+declare -gA __KLIB_CONFIG
 
 # Set config value
 kc.set() {
@@ -78,11 +78,21 @@ kc.isFalse() {
 # Usage: kc.alias "feature" creates nameref: kc_feature -> __KLIB_CONFIG[feature]
 # Alias automatically reflects current value in __KLIB_CONFIG[feature]
 kc.alias() {
-    declare -ng "kc_${1}=__KLIB_CONFIG[$1]"
+    local key="$1"
+    # SECURITY: the key is interpolated into both a variable name (kc_$key) and a
+    # nameref target subscript. A key like 'x]=...; cmd' would corrupt the declare.
+    # Restrict to a plain identifier (which is also all a valid nameref name allows).
+    if [[ ! "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+        echo "kc.alias: invalid key '$key' (must be a valid identifier)" >&2
+        return 1
+    fi
+    declare -ng "kc_${key}=__KLIB_CONFIG[$key]"
 }
 
 # Check if nameref variable exists
 # Usage: kc.iasAlias "kc_feature"
 kc.iasAlias() {
-    [[ $(declare -p "$1" 2>/dev/null) =~ ^declare\ -n ]]
+    # -R is a fork-free nameref test (bash 4.3+); the old form forked a subshell
+    # to grep `declare -p` output on every call.
+    [[ -R "$1" ]]
 }

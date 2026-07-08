@@ -23,7 +23,7 @@ declare -g REPORT_ERRORS_ENABLED=true
 # the error code. Default is false so sourcing this library into an interactive
 # or test shell cannot kill the whole session from an ERR trap.
 declare -g EXIT_ON_ERROR_ENABLED=false
-declare -g __KLIB_HAS_ERRROR=false
+declare -g __KLIB_HAS_ERROR=false
 
 ke.exitOnErrorOn() {
     EXIT_ON_ERROR_ENABLED=true
@@ -42,12 +42,15 @@ ke.enableErrorReport() {
 }
 
 ke.setError() {
-    __KLIB_HAS_ERRROR=true
+    __KLIB_HAS_ERROR=true
 }
 
 ke.hasError() {
-    echo -n "$__KLIB_HAS_ERRROR"
-    __KLIB_HAS_ERRROR=false
+    # Set RESULT (convention) as well as echoing, so callers can read it without
+    # a $(...) fork. Preserves the existing read-and-clear behavior.
+    RESULT="$__KLIB_HAS_ERROR"
+    echo -n "$__KLIB_HAS_ERROR"
+    __KLIB_HAS_ERROR=false
 }
 
 # Report error with detailed information
