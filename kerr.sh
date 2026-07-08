@@ -8,8 +8,11 @@ if [[ -n "$__KLIB_ERR_SOURCED" ]]; then
     return
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/klib.sh"
+# Source klib.sh from this file's own directory WITHOUT leaking a global
+# SCRIPT_DIR — a bare SCRIPT_DIR at file scope clobbers the extremely common
+# caller convention `SCRIPT_DIR="$(dirname "$0")"` and breaks any code that
+# reuses SCRIPT_DIR after sourcing (e.g. to locate sibling files).
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/klib.sh"
 
 declare -g __KLIB_ERR_SOURCED=1
 
