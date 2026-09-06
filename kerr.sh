@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Prevent multiple sourcing
-if [[ -n "$__KLIB_ERR_SOURCED" ]]; then
-    if [[ "$1" == "set_trap" ]]; then
+if [[ -n "${__KLIB_ERR_SOURCED:-}" ]]; then
+    if [[ "${1:-}" == "set_trap" ]]; then
         ke.setTrap
     fi
     return
@@ -143,6 +143,6 @@ ke.setTrap() {
 }
 
 # Set trap if requested via argument
-if [[ "$1" == "set_trap" ]]; then
+if [[ "${1:-}" == "set_trap" ]]; then
     ke.setTrap
 fi

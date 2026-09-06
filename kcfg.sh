@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Prevent multiple sourcing
-if [[ -n "$__KLIB_CFG_SOURCED" ]]; then
+if [[ -n "${__KLIB_CFG_SOURCED:-}" ]]; then
     return
 fi
 declare -g __KLIB_CFG_SOURCED=1

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Prevent multiple sourcing
-if [[ -n "$__KLIB_VARS_SOURCED" ]]; then
+if [[ -n "${__KLIB_VARS_SOURCED:-}" ]]; then
     return
 fi
 declare -g __KLIB_VARS_SOURCED=1
