@@ -137,6 +137,92 @@ kk.isNum() {   # VALUE [OUTVAR]
     return 0
 }
 
+
+# ============================================================================
+# kk.debug MSG...   — the kcl debug channel (decision D2, plan P9)
+# ============================================================================
+# kcl's error contract is "rc 1 + RESULT='' + nothing printed"; a diagnostic
+# goes to stderr ONLY under `VERBOSE_KKLASS=debug`. Eleven units wrote that out
+# by hand ~80 times, in three spellings:
+#
+#   [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "..."   >&2
+#   [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && printf ... "..." >&2
+#   unit._debug() { if [[ ... ]]; then printf '%s\n' "$1" >&2; fi; }
+#
+# All three are one idiom, and the `&&` spelling has a trap: with the switch OFF
+# the list evaluates to FALSE, so a member that ends on it returns 1 by accident
+# and aborts a `set -e` caller (kcl/README.md 1.4). kk.debug is the same idiom
+# with one spelling and an UNCONDITIONAL rc 0.
+#
+#   * rc 0 always, on both branches — safe as the last statement of a function.
+#   * Nothing ever reaches stdout; the message is stderr-only and appears only
+#     under the switch.
+#   * The message is DATA: `printf '%s\n' "$*"`, so `-e`, `-n`, `%s` and
+#     backslashes survive verbatim (`echo` would eat the first two).
+#   * No fork, no subshell, no external command; `set -eu` clean with or
+#     without an argument.
+kk.debug() {   # MSG...
+    if [[ "${VERBOSE_KKLASS:-}" == "debug" ]]; then
+        printf '%s\n' "$*" >&2
+    fi
+    return 0
+}
+
+# ============================================================================
+# kk._outName NAME [RESERVED_PREFIX...]   — the §1.7 output-name rule (P8-F1)
+# ============================================================================
+# A member that fills a caller array takes the array's NAME and binds a nameref
+# to it (kcl/README.md 1.7). The name must be validated BEFORE the binding,
+# because `local -n out="$1"` on a bad name prints a bash diagnostic and leaves
+# rc 0, and on a RESERVED name it aliases something the member itself owns:
+#
+#   h.ToArray __ts_it     -> the fill loop appended the set's storage to itself
+#   d.KeysToArray __td_items -> `ref=()` WIPED the dictionary, rc 0 (G2-02)
+#   I.ReadSections dirty  -> the output bound the instance's own state (T13)
+#   TRegEx.matches x 1bad -> bash diagnostic, rc 0, RESULT=1 (T8)
+#
+# bash scopes locals DYNAMICALLY, which is why a unit's own local-variable
+# prefix has to be refused as well: the caller passes RESERVED_PREFIX for each
+# prefix the calling unit uses (`__tqs_`, `__tif_`, `__tre_`, …).
+#
+#   rc 0 = usable, rc 2 = malformed call (kcl/README.md 1.2 reserves rc 2 for
+#   exactly this), silent on both paths, fork-free, and the argument is only
+#   PATTERN-MATCHED — never expanded, never evaluated, never assigned to, so a
+#   name is not created as a side effect of checking it.
+#
+# Refused: anything that is not a plain identifier; the kklass reserved set
+# `this __inst__ __class__ RESULT REPLY IFS state` and the `__kk_`/`__KK_` space
+# (`state` is in it because kk._run_frame_body binds it as a nameref onto
+# `${inst}_data` in EVERY member frame, so an output array called `state` can
+# never reach the caller from inside an instance member — a framework fact, not
+# a per-unit convention); each
+# RESERVED_PREFIX given (an empty one is ignored, so `"$prefix"` from an unset
+# variable cannot refuse every name); and, when `__inst__` is non-empty — i.e.
+# inside an instance member body — that instance's own `_data`, `_class` and
+# `_items` arrays. A unit with MORE per-instance arrays than those three
+# (tqueuestack's `_qhead`/`_nhook`, tinifile's twelve) checks the extra ones
+# itself and calls this for the shared core.
+kk._outName() {   # NAME [RESERVED_PREFIX...]
+    local __kk_n="${1:-}" __kk_p
+    case "$__kk_n" in
+        ""|*[!A-Za-z0-9_]*|[0-9]*)                 return 2 ;;
+        this|__inst__|__class__|RESULT|REPLY|IFS|state) return 2 ;;
+        __kk_*|__KK_*)                             return 2 ;;
+    esac
+    if [[ -n "${__inst__:-}" ]]; then
+        case "$__kk_n" in
+            "${__inst__}_data"|"${__inst__}_class"|"${__inst__}_items") return 2 ;;
+        esac
+    fi
+    shift || return 2
+    for __kk_p in "$@"; do
+        if [[ -n "$__kk_p" && "$__kk_n" == "$__kk_p"* ]]; then
+            return 2
+        fi
+    done
+    return 0
+}
+
 kl.getTopCaller() {
     for ((i=1; i<${#BASH_SOURCE[@]}; i++)); do
         local caller_file="${BASH_SOURCE[i]}"
