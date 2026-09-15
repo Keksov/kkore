@@ -168,6 +168,46 @@ kk.debug() {   # MSG...
     return 0
 }
 
+
+# ============================================================================
+# kk.warn MSG...   — the kcl warning channel (D6 final Q6, tpipe P3)
+# ============================================================================
+# `VERBOSE_KKLASS` has THREE levels, and this helper is the middle one:
+#
+#   quiet     nothing at all reaches stderr — neither errors nor warnings;
+#   unset     (the default) warnings are printed, errors are not;
+#   debug     both are printed.
+#
+# An ERROR (kk.debug) explains an answer the caller already has: rc 1 with
+# RESULT='' or rc 2 for a malformed call. The unit did nothing, so a caller who
+# wants the reason turns the switch on.
+#
+# A WARNING (kk.warn) is the opposite case: the call WORKED — its rc and RESULT
+# are exactly what the contract promises — but it very likely did not do what
+# the caller meant, and nothing in the rc or the value can say so. The first
+# case is a sink running inside a subshell (tpipe D6 final): every record is
+# delivered and the count is right, while the object the callback mutated dies
+# with the subshell. A caller who never sees that line loses state in silence,
+# which is why the default is ON.
+#
+# A unit that warns owes the caller two things, both in its README: the line
+# VERBATIM, and the per-call way to silence it (tpipe: the `-s` flag or
+# `KK_SUBSHELL_OK=1`). `VERBOSE_KKLASS=quiet` is the corpus-wide off switch and
+# silences every warning of every unit at once.
+#
+#   * rc 0 always, on both branches — safe as the last statement of a function.
+#   * Nothing ever reaches stdout; the message is stderr-only.
+#   * The message is DATA: `printf '%s\n' "$*"`, so `-e`, `-n`, `%s` and
+#     backslashes survive verbatim (`echo` would eat the first two).
+#   * It changes neither RESULT nor the caller's rc; no fork, no subshell,
+#     `set -eu` clean with or without an argument.
+kk.warn() {   # MSG...
+    if [[ "${VERBOSE_KKLASS:-}" != "quiet" ]]; then
+        printf '%s\n' "$*" >&2
+    fi
+    return 0
+}
+
 # ============================================================================
 # kk._outName NAME [RESERVED_PREFIX...]   — the §1.7 output-name rule (P8-F1)
 # ============================================================================

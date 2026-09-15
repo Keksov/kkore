@@ -1,5 +1,12 @@
 #!/bin/bash
-# DebugAndOutName — kk.debug / kk._outName (kcl plan P9, finding P8-F1).
+# DebugAndOutName — kk.debug / kk.warn / kk._outName (kcl plan P9, finding
+# P8-F1; kk.warn added by tpipe P3.1, owner ruling D6 final of 2026-09-15).
+#
+# `VERBOSE_KKLASS` has three levels — `quiet`, unset (default), `debug` — and
+# two channels: `kk.debug` for an ERROR (the call did not work; opt-IN, debug
+# only) and `kk.warn` for a WARNING (the call worked but very likely not as the
+# caller meant; opt-OUT, printed everywhere but `quiet`). Both are stderr-only,
+# fork-free, rc 0 on every path, and treat the message as data.
 #
 # Two idioms are repeated across the kcl corpus and were deferred to P9:
 #
@@ -31,6 +38,7 @@ source "$KKORE_DIR/klib.sh"
 TMPD="$(kt_fixture_tmpdir)"
 OUTF="$TMPD/out"
 ERRF="$TMPD/err"
+ERRF2="$TMPD/err2"
 
 # ============================================================================
 # kk.debug
@@ -153,6 +161,137 @@ kt_test_start "kk.debug leaves RESULT and REPLY alone [contract]"
 RESULT="keep-r"; REPLY="keep-y"
 VERBOSE_KKLASS=debug kk.debug "noise" 2>/dev/null
 unset VERBOSE_KKLASS
+[[ "$RESULT" == "keep-r" && "$REPLY" == "keep-y" ]] \
+    && kt_test_pass "untouched" || kt_test_fail "RESULT='$RESULT' REPLY='$REPLY'"
+
+# ============================================================================
+# kk.warn  (D6 final Q6, tpipe P3.1)
+# ============================================================================
+# The THIRD level of VERBOSE_KKLASS. `kk.debug` explains an answer the caller
+# already has (rc 1 / rc 2) and is therefore opt-in; `kk.warn` says the call
+# WORKED but very likely did not do what the caller meant — nothing in the rc or
+# in RESULT can say so — and is therefore opt-OUT: printed at every level except
+# `quiet`. The two helpers are otherwise the same shape: stderr only, the
+# message is data, rc 0 always, no fork.
+
+kt_test_start "kk.warn is defined [D6 final Q6]"
+if declare -F kk.warn >/dev/null 2>&1; then
+    kt_test_pass "defined"
+else
+    kt_test_fail "kk.warn does not exist"
+fi
+
+# --- printed by DEFAULT, and under every level that is not `quiet` -----------
+for sw in "<unset>" "" "debug" "info" "verbose" "QUIET" "quiet " " quiet"; do
+    kt_test_start "kk.warn PRINTS when VERBOSE_KKLASS='$sw' [D6 final Q6]"
+    if [[ "$sw" == "<unset>" ]]; then unset VERBOSE_KKLASS; else VERBOSE_KKLASS="$sw"; fi
+    kk.warn "Warning: TPipe.toArray: state will be lost" >"$OUTF" 2>"$ERRF"; rc=$?
+    out="$(<"$OUTF")"; err="$(cat "$ERRF")"
+    if [[ $rc -eq 0 && -z "$out" && "$err" == "Warning: TPipe.toArray: state will be lost" ]]; then
+        kt_test_pass "rc=0, stderr exact, stdout empty"
+    else
+        kt_test_fail "rc=$rc stdout='$out' stderr='$err'"
+    fi
+done
+unset VERBOSE_KKLASS
+
+# --- silent under `quiet`, and ONLY under `quiet` ----------------------------
+kt_test_start "kk.warn is SILENT under VERBOSE_KKLASS=quiet, rc still 0 [D6 final Q6]"
+VERBOSE_KKLASS=quiet
+kk.warn "must not appear" >"$OUTF" 2>"$ERRF"; rc=$?
+out="$(<"$OUTF")"; err="$(<"$ERRF")"
+unset VERBOSE_KKLASS
+if [[ $rc -eq 0 && -z "$out" && -z "$err" ]]; then
+    kt_test_pass "rc=0, nothing anywhere"
+else
+    kt_test_fail "rc=$rc stdout='$out' stderr='$err'"
+fi
+
+kt_test_start "the two channels are independent: under \`quiet\` BOTH are silent, by default only kk.debug is"
+VERBOSE_KKLASS=quiet
+{ kk.debug "dbg"; kk.warn "warn"; } 2>"$ERRF"
+q="$(<"$ERRF")"
+unset VERBOSE_KKLASS
+{ kk.debug "dbg"; kk.warn "Warning: default"; } 2>"$ERRF"
+d="$(cat "$ERRF")"
+VERBOSE_KKLASS=debug
+{ kk.debug "Error: dbg"; kk.warn "Warning: both"; } 2>"$ERRF"
+b="$(cat "$ERRF")"
+unset VERBOSE_KKLASS
+if [[ -z "$q" && "$d" == "Warning: default" && "$b" == $'Error: dbg\nWarning: both' ]]; then
+    kt_test_pass "quiet: nothing; default: the warning only; debug: both"
+else
+    kt_test_fail "quiet='$q' default='$d' debug='${b//$'\n'/<nl>}'"
+fi
+
+# --- the message is DATA ------------------------------------------------------
+DATA_MSGS=( '-e' '-n' '-neE' '100%% done' 'a%sb' 'back\slash' 'tab\there' '--' )
+for msg in "${DATA_MSGS[@]}"; do
+    kt_test_start "kk.warn emits '$msg' verbatim [contract: values are data]"
+    kk.warn "$msg" 2>"$ERRF"
+    err="$(cat "$ERRF")"
+    if [[ "$err" == "$msg" ]]; then
+        kt_test_pass "verbatim"
+    else
+        kt_test_fail "got '$err'"
+    fi
+done
+
+kt_test_start "kk.warn joins its arguments with a single space, and takes NO argument"
+kk.warn Warning: TPipe.toArray: state will be lost 2>"$ERRF"
+err="$(cat "$ERRF")"
+kk.warn 2>"$ERRF2"; rc=$?
+bytes=$(wc -c <"$ERRF2")
+if [[ "$err" == "Warning: TPipe.toArray: state will be lost" && $rc -eq 0 && "$bytes" -eq 1 ]]; then
+    kt_test_pass "joined with one space; the empty call is rc 0 and one newline"
+else
+    kt_test_fail "joined='$err' emptyRc=$rc emptyBytes=$bytes"
+fi
+
+kt_test_start "kk.warn returns 0 as the LAST statement of a function under set -e, at all three levels [D7]"
+out="$(bash -c "set -e
+source '$KKORE_DIR/klib.sh'
+f() { kk.warn 'note'; }
+VERBOSE_KKLASS=quiet; f 2>/dev/null; printf 'quiet:%s,' \$?
+unset VERBOSE_KKLASS;  f 2>/dev/null; printf 'default:%s,' \$?
+VERBOSE_KKLASS=debug;  f 2>/dev/null; printf 'debug:%s' \$?" 2>"$ERRF")"
+err="$(<"$ERRF")"
+if [[ "$out" == "quiet:0,default:0,debug:0" && -z "$err" ]]; then
+    kt_test_pass "$out"
+else
+    kt_test_fail "out='$out' stderr='$err'"
+fi
+
+kt_test_start "kk.warn is set -u clean with and without an argument [D7]"
+out="$(bash -c "set -eu
+source '$KKORE_DIR/klib.sh'
+kk.warn
+kk.warn 'y'
+VERBOSE_KKLASS=quiet
+kk.warn
+kk.warn 'z'
+printf 'survived'" 2>"$ERRF" >"$OUTF"; printf '%s' "$(<"$OUTF")")"
+err="$(<"$ERRF")"
+if [[ "$out" == "survived" && "$err" == $'\ny' ]]; then
+    kt_test_pass "survived, stderr='<nl>y'"
+else
+    kt_test_fail "out='$out' stderr='${err//$'\n'/<nl>}'"
+fi
+
+kt_test_start "kk.warn does not fork [perf contract]"
+before="$BASHPID"
+kk.warn "x" 2>/dev/null; a="$BASHPID"
+VERBOSE_KKLASS=quiet kk.warn "x" 2>/dev/null; b="$BASHPID"
+unset VERBOSE_KKLASS
+if [[ "$a" == "$before" && "$b" == "$before" ]]; then
+    kt_test_pass "same shell ($before)"
+else
+    kt_test_fail "forked: $before -> $a / $b"
+fi
+
+kt_test_start "kk.warn leaves RESULT and REPLY alone [contract]"
+RESULT="keep-r"; REPLY="keep-y"
+kk.warn "noise" 2>/dev/null
 [[ "$RESULT" == "keep-r" && "$REPLY" == "keep-y" ]] \
     && kt_test_pass "untouched" || kt_test_fail "RESULT='$RESULT' REPLY='$REPLY'"
 

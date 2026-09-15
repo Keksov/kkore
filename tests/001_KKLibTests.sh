@@ -288,5 +288,13 @@ else
 fi
 
 
-# Cleanup
-rm -rf "$TMP_DIR"
+# Cleanup — ONLY the one file this file created.
+#
+# This used to be `rm -rf "$TMP_DIR"`, i.e. `rm -rf tests/.tmp`, which is the
+# directory the ktests runner gives EVERY test file of the suite. In the default
+# threaded mode (8 workers) the files run concurrently, so whichever file was
+# still running when this one finished lost its fixture directory mid-test and
+# started reporting "No such file or directory" on every write. It stayed hidden
+# only because this file happened to finish last; it surfaced the moment
+# 007_DebugAndOutName grew its kk.warn cases (tpipe P3.1) and outlived it.
+rm -f "$temp_file"
