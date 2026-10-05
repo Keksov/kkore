@@ -60,9 +60,27 @@ declare -g __KK_NUM=""
 # Assign VALUE to the variable named NAME, refusing anything that is not a
 # plain identifier (`a[$(cmd)]` is an arithmetic-evaluated subscript in printf -v)
 # and anything in the reserved __kk_/__KK_ space (see the note above).
+#
+# The identifier check is an INLINE copy of kk._is_ident's rule (below; kklass
+# round 4 / P12 review R1): the bare range glob that stood here accepted ı İ Ａ
+# under en_US.UTF-8 (é Ä ß with globasciiranges off, İ / KELVIN SIGN under
+# nocasematch), and `printf -v` then printed a bash diagnostic — breaking the
+# "nothing is ever printed" contract of kk.isInt / kk.isNum. Inline, not a
+# call: kk.isInt/kk.isNum are hot in kcl, and on bash 5.2 / msys the call cost
+# +17 us per OUTVAR vs +4.5 us inline. THIS COPY MUST STAY EQUIVALENT TO
+# kk._is_ident — kkore test 008 runs one name table through both in all 12
+# locale × globasciiranges × nocasematch combinations. Under nocasematch the
+# check runs with it switched off (restored), so __kk_/__KK_ are case-sensitive.
 kk._setOut() {   # NAME VALUE
+    if [[ a == A && $BASHOPTS == *nocasematch* ]]; then
+        shopt -u nocasematch
+        kk._setOut "$@"
+        local __kk_rc=$?
+        shopt -s nocasematch
+        return "$__kk_rc"
+    fi
     case "${1:-}" in
-        ""|*[!A-Za-z0-9_]*|[0-9]*|__kk_*|__KK_*) return 2 ;;
+        ""|*[!A-Za-z0-9_]*|*[![:ascii:]]*|[0-9]*|__kk_*|__KK_*) return 2 ;;   # = kk._is_ident
     esac
     printf -v "$1" '%s' "${2:-}"
 }
@@ -209,6 +227,38 @@ kk.warn() {   # MSG...
 }
 
 # ============================================================================
+# kk._is_ident NAME   — the ONE plain-identifier check (kklass round 4, DR13)
+# ============================================================================
+# rc 0 when NAME is a plain ASCII bash identifier ([A-Za-z_][A-Za-z0-9_]*),
+# rc 1 otherwise. Silent, fork-free, the argument is only pattern-matched,
+# BASH_REMATCH is left alone (no =~). Used by kk._outName and kc.alias here
+# and — kklass.sh sources this file first — by every kklass entry path
+# (kk.isAbstract, kk.derivesFrom, kk.decl._validate_ident, the generated
+# CLASS.new under nocasematch, loadObjects).
+#
+# Locale-exact WITHOUT a locale switch. A bare range glob is not exact: under
+# en_US.UTF-8 on bash 5.2 `[A-Za-z]` matches ı İ Ａ, and with globasciiranges
+# off also é Ä ß. Every such character is non-ASCII, so the `*[![:ascii:]]*`
+# guard refuses them all, and on ASCII the ranges are exact in every locale.
+# The other hole is `shopt -s nocasematch` (case folding lets İ / ı match i / I
+# and the KELVIN SIGN match k): the core then runs with nocasematch OFF and the
+# caller's setting is restored before returning. Round 3 (kklass P11) used a
+# function-local `LC_ALL=C` instead — exact as well, but ≈4.5× slower under a
+# UTF-8 caller locale (kk.derivesFrom 70 -> 213 us, finding L2). Exactness is
+# pinned by kkore test 008 (every printable ASCII character, ı İ Ａ é Ä ß ſ K
+# ² ٣ １ … × 12 locale × globasciiranges × nocasematch combinations).
+kk._is_ident() {   # NAME
+    if [[ a == A && $BASHOPTS == *nocasematch* ]]; then   # see kk._outName on the probe
+        shopt -u nocasematch
+        kk._is_ident "$@"
+        local __kk_rc=$?
+        shopt -s nocasematch
+        return "$__kk_rc"
+    fi
+    [[ -n "${1:-}" && "$1" != [!A-Za-z_]* && "$1" != *[!A-Za-z0-9_]* && "$1" != *[![:ascii:]]* ]]
+}
+
+# ============================================================================
 # kk._outName NAME [RESERVED_PREFIX...]   — the §1.7 output-name rule (P8-F1)
 # ============================================================================
 # A member that fills a caller array takes the array's NAME and binds a nameref
@@ -242,10 +292,32 @@ kk.warn() {   # MSG...
 # `_items` arrays. A unit with MORE per-instance arrays than those three
 # (tqueuestack's `_qhead`/`_nhook`, tinifile's twelve) checks the extra ones
 # itself and calls this for the shared core.
+#
+# The identifier check is kk._is_ident's rule (kklass round 4, DR13: locale-
+# exact; the bare range glob that stood here accepted ı İ Ａ under en_US.UTF-8,
+# and the caller's `local -n` then printed a bash diagnostic), as an INLINE
+# copy: kcl units call kk._outName on every output-array member, and on bash
+# 5.2 / msys the extra function call doubled its cost (26.6 -> 47 us).
+# THIS COPY MUST STAY EQUIVALENT TO kk._is_ident — kkore test 008 runs one
+# name table through both in all 12 locale × globasciiranges × nocasematch
+# combinations. Every comparison runs with nocasematch OFF (restored on
+# return): the reserved set and the prefixes are case-SENSITIVE, as bash names
+# are — under nocasematch `result`, `This`, `STATE`, `ifs` used to be refused
+# as if they were RESULT, this, state, IFS.
+# The nocasematch probe is `[[ a == A ]]` — true only under nocasematch and
+# cheaper than matching $BASHOPTS (≈1.5 us per call on bash 5.2 / msys);
+# $BASHOPTS then confirms it before anything is switched.
 kk._outName() {   # NAME [RESERVED_PREFIX...]
+    if [[ a == A && $BASHOPTS == *nocasematch* ]]; then
+        shopt -u nocasematch
+        kk._outName "$@"
+        local __kk_rc=$?
+        shopt -s nocasematch
+        return "$__kk_rc"
+    fi
     local __kk_n="${1:-}" __kk_p
     case "$__kk_n" in
-        ""|*[!A-Za-z0-9_]*|[0-9]*)                 return 2 ;;
+        ""|*[!A-Za-z0-9_]*|*[![:ascii:]]*|[0-9]*)  return 2 ;;   # = kk._is_ident
         this|__inst__|__class__|RESULT|REPLY|IFS|state) return 2 ;;
         __kk_*|__KK_*)                             return 2 ;;
     esac

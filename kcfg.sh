@@ -6,6 +6,16 @@ if [[ -n "${__KLIB_CFG_SOURCED:-}" ]]; then
 fi
 declare -g __KLIB_CFG_SOURCED=1
 
+# kc.alias validates its key with kk._is_ident (klib.sh). kcfg.sh is also
+# sourced on its own (kkore test 003), so klib.sh is loaded here unless it
+# already is (its own guard would make a second source a no-op anyway).
+if [[ -z "${__KLIB_SOURCED:-}" ]]; then
+    __KLIB_CFG_DIR="${BASH_SOURCE[0]%/*}"
+    [[ "$__KLIB_CFG_DIR" == "${BASH_SOURCE[0]}" ]] && __KLIB_CFG_DIR=.
+    source "$__KLIB_CFG_DIR/klib.sh"
+    unset __KLIB_CFG_DIR
+fi
+
 declare -gA __KLIB_CONFIG
 
 # Set config value
@@ -82,7 +92,11 @@ kc.alias() {
     # SECURITY: the key is interpolated into both a variable name (kc_$key) and a
     # nameref target subscript. A key like 'x]=...; cmd' would corrupt the declare.
     # Restrict to a plain identifier (which is also all a valid nameref name allows).
-    if [[ ! "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+    # kk._is_ident (klib.sh, kklass round 4 DR13): locale-exact also under
+    # nocasematch (the =~ that stood here let ı / İ through there, and
+    # `declare -ng` then printed a bash diagnostic) and it leaves the caller's
+    # BASH_REMATCH alone (the =~ overwrote it on EVERY call).
+    if ! kk._is_ident "$key"; then
         echo "kc.alias: invalid key '$key' (must be a valid identifier)" >&2
         return 1
     fi
