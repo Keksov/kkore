@@ -4,7 +4,8 @@
 #   P0.1 kv.new deterministic uniqueness (was a ~14% $RANDOM collision)
 #   P2.4 kv.set/get/free signal non-zero on empty name
 #   P2.5 kc.iasAlias fork-free nameref detection
-#   P2.3 kk.getScriptDir sets RESULT
+#   P2.3 kk.getScriptDir sets RESULT — superseded: kk.getScriptDir, kk.use and
+#        kk.clearUseCache were removed together (USES_PLAN P2); KK_UNIT_DIR replaces them
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KTESTS_LIB_DIR="$SCRIPT_DIR/../../ktests"
@@ -91,12 +92,13 @@ else
     kt_test_fail "kc.alias accepted an invalid key"
 fi
 
-# P2.3: kk.getScriptDir must set RESULT (so callers can avoid a $(...) fork).
-kt_test_start "kk.getScriptDir sets RESULT"
-RESULT=""
-kk.getScriptDir "$SCRIPT_DIR/005_HardeningRegression.sh" >/dev/null
-if [[ -n "$RESULT" && -d "$RESULT" ]]; then
-    kt_test_pass "kk.getScriptDir sets RESULT"
+# P2.3 (superseded, USES_PLAN P2): kk.getScriptDir, kk.use and kk.clearUseCache are
+# gone; a unit reads its own folder from KK_UNIT_DIR (kk.unit sets it, no fork).
+kt_test_start "kk.getScriptDir / kk.use / kk.clearUseCache removed; kk.uses + kk.unit present"
+if ! declare -F kk.getScriptDir >/dev/null && ! declare -F kk.use >/dev/null \
+   && ! declare -F kk.clearUseCache >/dev/null \
+   && declare -F kk.uses kk.unit kk.defined >/dev/null 2>&1; then
+    kt_test_pass "old loader API removed, new one present"
 else
-    kt_test_fail "kk.getScriptDir did not set RESULT (got '$RESULT')"
+    kt_test_fail "old API still defined or new one missing"
 fi

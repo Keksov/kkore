@@ -1,5 +1,5 @@
 #!/bin/bash
-# Core Tests - Frame stack (kvar), error-trap exit toggle (kerr) and kk.use (kuse)
+# Core Tests - Frame stack (kvar), error-trap exit toggle (kerr) and kk.uses (kuse)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KTESTS_LIB_DIR="$SCRIPT_DIR/../../ktests"
@@ -131,56 +131,55 @@ else
 fi
 
 # ============================================================================
-# kk.use tests (caller-relative resolution)
+# kk.uses tests (caller-relative resolution) — kk.use / kk.getScriptDir /
+# kk.clearUseCache were replaced by kk.uses + KK_UNIT_DIR (USES_PLAN P2, U24)
 # ============================================================================
 
+source "$KKORE_DIR/../kbool.sh"
 USE_TMP="$SCRIPT_DIR/.tmp/usecase"
 
-# Test 10: kk.use resolves files relative to the caller, not kuse.sh
-kt_test_start "kk.use resolves relative to the calling script"
+# Test 10: kk.uses resolves a path relative to the calling file, not kuse.sh
+kt_test_start "kk.uses resolves a relative path against the calling file"
 rm -rf "$USE_TMP"
 mkdir -p "$USE_TMP"
-echo '__USE_TARGET_LOADED=1' > "$USE_TMP/use_target.sh"
+echo '__USE_TARGET_LOADED=$(( ${__USE_TARGET_LOADED:-0} + 1 ))' > "$USE_TMP/use_target.sh"
 cat > "$USE_TMP/use_helper.sh" <<'HELPER'
-__USE_HELPER_RESULT="$(kk.use "use_target.sh")"
+kk.uses "use_target.sh"
 __USE_HELPER_STATUS=$?
 HELPER
 
-kk.clearUseCache
 source "$USE_TMP/use_helper.sh"
-expected_path="$USE_TMP/use_target.sh"
-if [[ "$__USE_HELPER_STATUS" -eq 0 && "$__USE_HELPER_RESULT" == "$expected_path" ]]; then
-    kt_test_pass "kk.use resolves relative to the calling script"
+if [[ "$__USE_HELPER_STATUS" -eq 0 && "${__USE_TARGET_LOADED:-0}" -eq 1 ]]; then
+    kt_test_pass "kk.uses resolves a relative path against the calling file"
 else
-    kt_test_fail "kk.use resolution failed (status: $__USE_HELPER_STATUS, path: '$__USE_HELPER_RESULT', expected: '$expected_path')"
+    kt_test_fail "kk.uses resolution failed (status: $__USE_HELPER_STATUS, loads: '${__USE_TARGET_LOADED:-0}')"
 fi
 
-# Test 11: kk.use returns 1 (already loaded) on second call
-kt_test_start "kk.use skips already-loaded files"
+# Test 11: a second kk.uses of the same file is a silent rc-0 no-op
+kt_test_start "kk.uses skips an already-loaded file (rc 0, not loaded again)"
 cat > "$USE_TMP/use_helper2.sh" <<'HELPER'
-kk.use "use_target.sh" >/dev/null
-kk.use "use_target.sh" >/dev/null
+kk.uses "use_target.sh"
+kk.uses "./use_target.sh"
 __USE_HELPER2_STATUS=$?
 HELPER
-kk.clearUseCache
 source "$USE_TMP/use_helper2.sh"
-if [[ "$__USE_HELPER2_STATUS" -eq 1 ]]; then
-    kt_test_pass "kk.use skips already-loaded files"
+if [[ "$__USE_HELPER2_STATUS" -eq 0 && "$__USE_TARGET_LOADED" -eq 1 ]]; then
+    kt_test_pass "kk.uses skips an already-loaded file (rc 0, not loaded again)"
 else
-    kt_test_fail "kk.use should return 1 for already-loaded file (got: $__USE_HELPER2_STATUS)"
+    kt_test_fail "kk.uses re-loaded or failed (status: $__USE_HELPER2_STATUS, loads: $__USE_TARGET_LOADED)"
 fi
 
-# Test 12: kk.use reports an error for a missing file
-kt_test_start "kk.use fails for a missing file"
+# Test 12: kk.uses reports rc 2 for a missing file
+kt_test_start "kk.uses fails with rc 2 for a missing file"
 cat > "$USE_TMP/use_helper3.sh" <<'HELPER'
-kk.use "does_not_exist.sh" >/dev/null 2>&1
+kk.uses "does_not_exist.sh" 2>/dev/null
 __USE_HELPER3_STATUS=$?
 HELPER
 source "$USE_TMP/use_helper3.sh"
 if [[ "$__USE_HELPER3_STATUS" -eq 2 ]]; then
-    kt_test_pass "kk.use fails for a missing file"
+    kt_test_pass "kk.uses fails with rc 2 for a missing file"
 else
-    kt_test_fail "kk.use should return 2 for a missing file (got: $__USE_HELPER3_STATUS)"
+    kt_test_fail "kk.uses should return 2 for a missing file (got: $__USE_HELPER3_STATUS)"
 fi
 
 rm -rf "$USE_TMP"
