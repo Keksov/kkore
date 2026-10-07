@@ -131,9 +131,29 @@ uf_build() {
 }
 
 uf_run() {
-    # hermetic (C5): none of the caller's loader variables reach the child
-    UF_OUT="$(env -u KBOOL_HOME -u VERBOSE_KKLASS -u KK_UNIT_DIR -u __KK_LOADED FX="$UF_FX" "$BASH" -c "$1" 2>&1)"
+    # hermetic (C5, U1b): none of the caller's loader variables reach the child,
+    # and every config lookup points into the fixture — HOME is a fixture folder,
+    # USERPROFILE / ProgramData (and the never-read PROGRAMDATA) are unset, and
+    # the system folder /etc/kbool is replaced by __KK_CFG_ETC (kuse.sh's test
+    # hook). A snippet exports its own values to test a level.
+    UF_OUT="$(env -u KBOOL_HOME -u KBOOL_CONFIG -u VERBOSE_KKLASS -u KK_UNIT_DIR -u __KK_LOADED \
+        -u USERPROFILE -u ProgramData -u PROGRAMDATA \
+        HOME="$UF_FX/home" __KK_CFG_ETC="$UF_FX/etc/kbool" FX="$UF_FX" "$BASH" -c "$1" 2>&1)"
     UF_RC=$?
+}
+
+# uf_win /c/x/y -> UF_WIN='C:\x\y' (lexical; only for a /<drive>/ path)
+uf_win() {
+    local __d=${1:1:1} __r=${1:2}
+    [[ $1 == /[A-Za-z]/* ]] || { echo "uf_win: not a /<drive>/ path: $1" >&2; return 1; }
+    UF_WIN="${__d^^}:${__r//\//\\}"
+}
+
+# uf_cfg FILE LINE...  — write a config file (LF line ends)
+uf_cfg() {
+    local f="$1"; shift
+    mkdir -p "${f%/*}"
+    printf '%s\n' "$@" > "$f"
 }
 
 # uf_check TITLE COND-RESULT DETAIL — pass/fail on a [[ ]] already evaluated by the caller

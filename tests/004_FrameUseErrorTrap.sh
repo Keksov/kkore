@@ -135,8 +135,16 @@ fi
 # kk.clearUseCache were replaced by kk.uses + KK_UNIT_DIR (USES_PLAN P2, U24)
 # ============================================================================
 
-source "$KKORE_DIR/../kbool.sh"
+# hermetic (U1b): no developer / system config and no KBOOL_CONFIG of the
+# caller reaches this load — HOME and the /etc/kbool hook point at empty
+# folders for the load only
 USE_TMP="$SCRIPT_DIR/.tmp/usecase"
+__t004_home=$HOME
+unset KBOOL_CONFIG USERPROFILE ProgramData
+HOME="$USE_TMP.home"
+export __KK_CFG_ETC="$USE_TMP.etc"
+source "$KKORE_DIR/../kbool.sh"
+HOME=$__t004_home
 
 # Test 10: kk.uses resolves a path relative to the calling file, not kuse.sh
 kt_test_start "kk.uses resolves a relative path against the calling file"
