@@ -320,7 +320,7 @@ kk._unit_register() {
     fi
     __KK_UNIT_DONE[$1]=1
     __KK_UNIT_SYS[$1]=1
-    unset "__KK_UNIT_FAIL[$1]"
+    unset '__KK_UNIT_FAIL[$1]'
 }
 
 # kk._unit_drop NAME — forget a unit: its classes first (the kklass hook), then
@@ -335,8 +335,8 @@ kk._unit_drop() {
             if [[ -n $__kk_c ]]; then kk._unit_forget_class "$__kk_c"; fi
         done
     fi
-    unset "__KK_UNITS[$1]" "__KK_UNIT_SRC[$1]" "__KK_UNIT_BOT[$1]" "__KK_UNIT_DONE[$1]" \
-          "__KK_UNIT_FAIL[$1]" "__KK_UNIT_CLASSES[$1]"
+    unset '__KK_UNITS[$1]' '__KK_UNIT_SRC[$1]' '__KK_UNIT_BOT[$1]' '__KK_UNIT_DONE[$1]' \
+          '__KK_UNIT_FAIL[$1]' '__KK_UNIT_CLASSES[$1]'
 }
 
 # kk._unit_reset — empty every registry table (kbool.sh: a fresh start, and the
@@ -526,7 +526,7 @@ kk.unit() {
     __KK_UNITS[$__kk_name]=$__kk_a
     __KK_UNIT_SRC[$__kk_name]=$__kk_src
     __KK_UNIT_BOT[$__kk_name]=$(( ${#BASH_SOURCE[@]} - 2 ))
-    unset "__KK_UNIT_DONE[$__kk_name]" "__KK_UNIT_FAIL[$__kk_name]"
+    unset '__KK_UNIT_DONE[$__kk_name]' '__KK_UNIT_FAIL[$__kk_name]'
     kk._unit_dir "$__kk_src"
     KK_UNIT_DIR=$__kk_d
     __kk_unit_rc=0
@@ -734,7 +734,7 @@ kk._uses() {
         fi
         if [[ ${__KK_UNITS[$__kk_nm]-} == "$__kk_f" ]]; then
             __KK_UNIT_DONE[$__kk_nm]=1
-            unset "__KK_UNIT_FAIL[$__kk_nm]"
+            unset '__KK_UNIT_FAIL[$__kk_nm]'
             if [[ $__kk_hl == 0 && $__kk_a != *[/\\]* && $__kk_a != *.sh && $__kk_caller == /* ]]; then
                 __KK_UNIT_HIT[$__kk_caller$__KK_SEP$__kk_a]=$__kk_f
             fi
@@ -874,9 +874,9 @@ kk._cfg_read() {
           __kk_d __kk_n __kk_nc=0 __kk_rc=0 __kk_cut=0 __kk_up="" __kk_upr="" __kk_df="" __kk_dfr="" \
           __kk_dbg="" __kk_dbgs="" __kk_ck="" __kk_cks="" IFS
     local -a __kk_ls __kk_ws
-    unset "__KK_CFG_LV[$__kk_lv/unitpath]" "__KK_CFG_LV[$__kk_lv/unitpath!]" \
-          "__KK_CFG_LV[$__kk_lv/defines]" "__KK_CFG_LV[$__kk_lv/defines!]" \
-          "__KK_CFG_LV[$__kk_lv/debug]" "__KK_CFG_LV[$__kk_lv/ckkdir]"
+    unset '__KK_CFG_LV[$__kk_lv/unitpath]' '__KK_CFG_LV[$__kk_lv/unitpath!]' \
+          '__KK_CFG_LV[$__kk_lv/defines]' '__KK_CFG_LV[$__kk_lv/defines!]' \
+          '__KK_CFG_LV[$__kk_lv/debug]' '__KK_CFG_LV[$__kk_lv/ckkdir]'
     # One read of at most 64 KiB, no fork, NUL as the delimiter: `read -N` would
     # drop NUL bytes silently (`A\0B` became the define AB), so this read stops
     # at the first NUL instead — rc 0 with fewer characters than asked = a NUL.
