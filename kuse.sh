@@ -35,6 +35,10 @@
 #                           (the system units until they carry headers) is a no-op.
 #                           rc 0 = all loaded (or already loaded); rc != 0 = the first
 #                           failure (rc 2 for a loader error, else the unit's own rc).
+#   kk.namespace X [Y ...]  declare more function namespaces (X.*) of the calling file,
+#                           besides the unit's own name (kk.unit declares that one):
+#                           kklass refuses a class or an instance named like a declared
+#                           namespace (U22/U40, "Declared namespaces" below). rc 0 / 2.
 #   kk.defined NAME         rc 0 when NAME is a define of the merged config (U1b),
 #                           1 when not, 2 without a name.
 #   kk.project PATH|NAME    read a project file (U8-U11, U37): its unit folders,
@@ -96,6 +100,9 @@
 #   __KK_PROJECT       the project file kk.project read ('' = none yet)
 #   __KK_UNIT_USED     the first non-system unit used ('' = none): kk.project is refused after it (U37)
 #   __KK_CFG_VKW       the VERBOSE_KKLASS value the config itself wrote ('' = none)
+#   __KK_NAMESPACES    namespace X (of functions X.*) -> "UNIT<US>FILE" that declared it (U40):
+#                      every unit name (kk.unit), every kk.namespace X, the kkore namespaces
+#                      (kbool.sh); kklass refuses a class or an instance named like one
 #   __KK_UNIT_PROJPATH / __KK_UNIT_SYSPATH  search path entries; `dir/*` = every subfolder
 #                      (PROJPATH = the merged config `unitpath`; SYSPATH = kkore, kklass, kcl/*)
 #   __KK_LOADED        [on]=1, set by kbool.sh: THIS shell owns the tables (R14). Checked as
@@ -109,7 +116,7 @@ kk._unit_tables() {
     set +u
     for __kk_t in __KK_UNITS __KK_UNIT_SRC __KK_UNIT_BOT __KK_UNIT_DONE __KK_UNIT_FAIL \
                   __KK_UNIT_SYS __KK_UNIT_CLASSES __KK_UNIT_FILES __KK_UNIT_CAND __KK_UNIT_IDX \
-                  __KK_UNIT_RES __KK_UNIT_HIT __KK_DEFINES __KK_CFG __KK_CFG_LV; do
+                  __KK_UNIT_RES __KK_UNIT_HIT __KK_DEFINES __KK_CFG __KK_CFG_LV __KK_NAMESPACES; do
         # keep an ASSIGNED assoc; replace anything else (unset, declared-but-
         # unassigned — whose `${R[@]@a}` reads "A" —, a scalar, an indexed array)
         if [[ ${!__kk_t@a} != *A* ]]; then
@@ -347,7 +354,7 @@ kk._unit_reset() {
     unset __KK_UNITS __KK_UNIT_SRC __KK_UNIT_BOT __KK_UNIT_DONE __KK_UNIT_FAIL __KK_UNIT_SYS \
           __KK_UNIT_CLASSES __KK_UNIT_FILES __KK_UNIT_CAND __KK_UNIT_IDX __KK_UNIT_RES \
           __KK_UNIT_HIT __KK_DEFINES __KK_UNIT_PROJPATH __KK_UNIT_SYSPATH __KK_UNIT_IDX_OK \
-          __KK_LOADED __KK_CFG __KK_CFG_LV __KK_PROJECT __KK_UNIT_USED __KK_CFG_VKW
+          __KK_LOADED __KK_CFG __KK_CFG_LV __KK_NAMESPACES __KK_PROJECT __KK_UNIT_USED __KK_CFG_VKW
     kk._unit_tables
 }
 
@@ -372,6 +379,83 @@ kk._unit_classes() {
     RESULT=""
     [[ ${__KK_LOADED[@]@a} == A ]] || return 0     # no registry of this shell (R14)
     RESULT="${__KK_UNIT_CLASSES[${1:-.}]-}"
+    return 0
+}
+
+# ---------------------------------------------------------------------------
+# Declared namespaces (uses U2b, U22 as amended by U40, owner 2026-10-08).
+# A namespace is the X of functions X.* a library defines (kk.uses, kv.new,
+# tawk.run). A class or an instance named X would replace or delete them, so
+# kklass refuses a class or an instance whose name is a DECLARED namespace —
+# declared, because listing bash's function table costs O(functions) after any
+# definition (measured ~quadratic: 2k 9 ms, 8k 150 ms, 16k 0.9 s, 24k 2.8 s), so
+# nothing on a declaration or `.new` path lists functions. Declared are:
+#   * every unit's own name (kk.unit NAME — a unit `tlist` owns tlist.*);
+#   * every `kk.namespace X ...` (a unit, or any file, owning more prefixes:
+#     thttpserver's ths, tcustomapplication's tca);
+#   * the kkore namespaces kk kl ke kv kc (kbool.sh; kklass also records kk kl
+#     ke kv and its own kkp in its table, so they are taken without kbool too).
+# A plain library that neither has a unit header nor calls kk.namespace is NOT
+# protected (the documented gap, U40). Several units may share one namespace;
+# the first declaration names the owner. A class may take the name of its own
+# unit's / file's namespace (kcl's `class dateutils` in dateutils.sh).
+# The other direction (U22: "a unit loaded AFTER a class of the same name is
+# caught at load"): kk.unit NAME and kk.namespace X refuse (rc 2) a name that is
+# already a built class or a live instance — through kklass's hook
+# kk._name_in_use when kklass is loaded.
+
+# kk._ns_declare X UNIT FILE — record namespace X (first owner wins) and tell
+# kklass (its hook kk._namespace_add) when it is loaded. X is an identifier.
+kk._ns_declare() {
+    [[ ${__KK_LOADED[@]@a} == A ]] || return 2       # no registry of this shell (R14)
+    [[ -z ${__KK_NAMESPACES[$1]+x} ]] || return 0
+    __KK_NAMESPACES[$1]="$2$__KK_SEP$3"
+    if declare -F kk._namespace_add >/dev/null; then kk._namespace_add "$1" "$2" "$3"; fi
+    return 0
+}
+
+# kk._ns_free X FILE WHAT — rc 0 when X may become a namespace declared from
+# FILE; rc 2 (printed) when kklass says X is a built class (declared elsewhere)
+# or a live instance. WHAT names the caller for the message.
+kk._ns_free() {
+    declare -F kk._name_in_use >/dev/null || return 0
+    kk._name_in_use "$1" "$2" || return 0
+    kk._unit_err "$3: '$1' is already $RESULT; a unit name and a kk.namespace name are function namespaces and may not be a class or an instance (U22)"
+    return 2
+}
+
+# kk.namespace X [Y ...] — declare more function namespaces of the calling file
+# (owner: the unit being loaded, if any). rc 0; rc 2 (printed) for no name, a
+# name that is not an identifier, a name that is already a class or a live
+# instance, or when kbool.sh is not loaded in this shell. A repeat is a no-op.
+kk.namespace() {
+    if [[ ${__KK_LOADED[@]@a} != A ]]; then
+        printf 'kbool: error: kk.namespace %s: kbool.sh is not loaded\n' "$*" >&2
+        return 2
+    fi
+    local __kk_x __kk_file=${BASH_SOURCE[1]-} __kk_u=""
+    if (( $# == 0 )); then
+        kk._unit_err "kk.namespace: no namespace named"
+        return 2
+    fi
+    for __kk_x; do
+        if ! kk._is_ident "$__kk_x"; then
+            kk._unit_err "kk.namespace: '$__kk_x' is not a namespace name (letters, digits, _)"
+            return 2
+        fi
+    done
+    case $__kk_file in
+        ''|main|environment) __kk_file="" ;;
+        /*|[A-Za-z]:*) ;;
+        *) __kk_file=$PWD/$__kk_file ;;
+    esac
+    if kk._unit_current; then __kk_u=$RESULT; fi
+    for __kk_x; do
+        if [[ -z ${__KK_NAMESPACES[$__kk_x]+x} ]]; then
+            kk._ns_free "$__kk_x" "$__kk_file" "kk.namespace $__kk_x" || return 2
+        fi
+        kk._ns_declare "$__kk_x" "$__kk_u" "$__kk_file"
+    done
     return 0
 }
 
@@ -522,11 +606,19 @@ kk.unit() {
     fi
     # a unit loaded (by any means) before kk.project could have read the defines
     # and resolved names without the project: kk.project is refused from now on (U37)
+    # U22/U40: a unit's name is a function namespace — it may not be a built
+    # class or a live instance (checked before anything is registered)
+    if kk._is_ident "$__kk_name" && [[ -z ${__KK_NAMESPACES[$__kk_name]+x} ]] \
+       && ! kk._ns_free "$__kk_name" "$__kk_a" "unit header 'kk.unit $__kk_name' in '$__kk_src'"; then
+        kk._unit_taint 3
+        return 2
+    fi
     if [[ -z $__KK_UNIT_USED ]]; then __KK_UNIT_USED=$__kk_name; fi
     __KK_UNITS[$__kk_name]=$__kk_a
     __KK_UNIT_SRC[$__kk_name]=$__kk_src
     __KK_UNIT_BOT[$__kk_name]=$(( ${#BASH_SOURCE[@]} - 2 ))
     unset '__KK_UNIT_DONE[$__kk_name]' '__KK_UNIT_FAIL[$__kk_name]'
+    if kk._is_ident "$__kk_name"; then kk._ns_declare "$__kk_name" "$__kk_name" "$__kk_a"; fi
     kk._unit_dir "$__kk_src"
     KK_UNIT_DIR=$__kk_d
     __kk_unit_rc=0
