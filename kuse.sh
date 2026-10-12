@@ -476,6 +476,10 @@ kk._ns_free() {
 # (owner: the unit being loaded, if any). rc 0; rc 2 (printed) for no name, a
 # name that is not an identifier, a name that is already a class or a live
 # instance, or when kbool.sh is not loaded in this shell. A repeat is a no-op.
+# Every rc-2 error with kbool loaded is a structural load error (U34/U42, U4-G1
+# R1): it taints the unit being loaded (frame 2 = the caller's source frame from
+# kk._unit_taint's view), so a plain-sourced unit whose kk.namespace failed is
+# not counted complete — its next source or kk.uses runs it again.
 kk.namespace() {
     if [[ ${__KK_LOADED[@]@a} != A ]]; then
         printf 'kbool: error: kk.namespace %s: kbool.sh is not loaded\n' "$*" >&2
@@ -484,11 +488,13 @@ kk.namespace() {
     local __kk_x __kk_file=${BASH_SOURCE[1]-} __kk_u=""
     if (( $# == 0 )); then
         kk._unit_err "kk.namespace: no namespace named"
+        kk._unit_taint 2
         return 2
     fi
     for __kk_x; do
         if ! kk._is_ident "$__kk_x"; then
             kk._unit_err "kk.namespace: '$__kk_x' is not a namespace name (letters, digits, _)"
+            kk._unit_taint 2
             return 2
         fi
     done
@@ -500,7 +506,10 @@ kk.namespace() {
     if kk._unit_current; then __kk_u=$RESULT; fi
     for __kk_x; do
         if [[ -z ${__KK_NAMESPACES[$__kk_x]+x} ]]; then
-            kk._ns_free "$__kk_x" "$__kk_file" "kk.namespace $__kk_x" || return 2
+            if ! kk._ns_free "$__kk_x" "$__kk_file" "kk.namespace $__kk_x"; then
+                kk._unit_taint 2
+                return 2
+            fi
         fi
         kk._ns_declare "$__kk_x" "$__kk_u" "$__kk_file"
     done

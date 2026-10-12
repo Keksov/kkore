@@ -47,6 +47,21 @@ uf_run 'kk_hook=""; source "$FX/kbool.sh"
    && "$UF_OUT" == *"'busy' is already an instance of TX"* && "$UF_OUT" == *"unit busy=2 loaded=0 reg="* ]]
 uf_check "kklass's hooks: a new namespace is pushed to kk._namespace_add; kk.namespace and a unit header refuse a name kk._name_in_use reports (rc 2; the unit not loaded, not registered) [U22, U40]" $?
 
+uf_unit "$FX" nsbad 'kk.namespace held || return' 'NSBAD_LOADS=$(( ${NSBAD_LOADS:-0} + 1 ))'
+uf_unit "$FX" nsuse 'kk.namespace "a b" || return' 'NSUSE_LOADS=$(( ${NSUSE_LOADS:-0} + 1 ))'
+uf_run 'source "$FX/kbool.sh"
+        kk._name_in_use() { [[ $1 == held ]] || return 1; RESULT="an instance of TX"; return 0; }
+        source "$FX/kcl/nsbad/nsbad.sh" 2>/dev/null; a=$?
+        kk.uses nsbad 2>/dev/null; b=$?
+        source "$FX/kcl/nsbad/nsbad.sh" 2>/dev/null; c=$?
+        kk._name_in_use() { return 1; }
+        kk.uses nsbad; d=$?
+        source "$FX/kcl/nsuse/nsuse.sh" 2>/dev/null; e=$?
+        kk.uses nsuse 2>/dev/null; f=$?
+        echo "plain=$a uses=$b again=$c freed=$d loads=${NSBAD_LOADS:-0} usage=$e,$f loads=${NSUSE_LOADS:-0}"'
+[[ "$UF_OUT" == "plain=2 uses=2 again=2 freed=0 loads=1 usage=2,2 loads=0" ]]
+uf_check "a refused or malformed kk.namespace in a PLAIN-sourced unit taints it (U34/U42): the next kk.uses and the next source run it again and fail again (rc 2), never an empty 'complete' unit [U4-G1 R1]" $?
+
 uf_run 'source "$FX/kbool.sh"; set -a; :; set +a; export -f kk.namespace kk._ns_declare kk._ns_free
         hz="z[\$(touch PWN)]" "$BASH" -c "kk.namespace hz; echo ns=\$?; kk._ns_declare hz u f; echo decl=\$?"; ls PWN 2>/dev/null'
 [[ "$UF_OUT" == $'kbool: error: kk.namespace hz: kbool.sh is not loaded\nns=2\ndecl=2' ]]
