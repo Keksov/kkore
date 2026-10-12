@@ -1,20 +1,10 @@
 #!/bin/bash
-
-# Prevent multiple sourcing
-if [[ -n "${__KLIB_ERR_SOURCED:-}" ]]; then
-    if [[ "${1:-}" == "set_trap" ]]; then
-        ke.setTrap
-    fi
-    return
-fi
-
-# Source klib.sh from this file's own directory WITHOUT leaking a global
-# SCRIPT_DIR — a bare SCRIPT_DIR at file scope clobbers the extremely common
-# caller convention `SCRIPT_DIR="$(dirname "$0")"` and breaks any code that
-# reuses SCRIPT_DIR after sourcing (e.g. to locate sibling files).
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/klib.sh"
-
-declare -g __KLIB_ERR_SOURCED=1
+[[ ${__KK_UNITS[@]@a} == A* ]] || source "${BASH_SOURCE%kerr.sh}../kbool.sh" || return
+kk.unit kerr || return $__kk_unit_rc
+# kerr.sh — kkore system unit (kklass/USES_PLAN.md U1): the error handler. It uses
+# klib (kl.errln), which kbool.sh always loads first — no source line of its own.
+# Units take no arguments (P8, C10): the ERR trap is set by an explicit `ke.setTrap`
+# call (the old `source kerr.sh set_trap` now only prints the P8 WARNING).
 
 # KLib Error Handler - Error handling and trapping
 # Provides comprehensive error reporting with stack traces and code context
@@ -141,8 +131,3 @@ ke.onError() {
 ke.setTrap() {
     trap 'ke.onError ${LINENO} ${BASH_LINENO}' ERR
 }
-
-# Set trap if requested via argument
-if [[ "${1:-}" == "set_trap" ]]; then
-    ke.setTrap
-fi

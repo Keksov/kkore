@@ -62,11 +62,17 @@ uf_build() {
         'DEP_LOADS=$(( ${DEP_LOADS:-0} + 1 ))' \
         'if (( ${UF_FAIL:-0} )); then source "${KK_UNIT_DIR}/../bad/bad.sh" || return; fi' \
         'dep.hello() { echo dep; }'
-    # an OPTIONAL dependency the unit handles: never marks it incomplete (R1)
+    # an OPTIONAL dependency the unit handles (kk.uses --optional, U42): never
+    # marks it incomplete, prints nothing
     uf_unit "$fx" opt \
-        'kk.uses nosuchopt 2>/dev/null || OPT_FALLBACK=1' \
-        'kk.uses fail 2>/dev/null || OPT_FALLBACK2=1' \
+        'kk.uses --optional nosuchopt || OPT_FALLBACK=1' \
+        'kk.uses --optional fail || OPT_FALLBACK2=1' \
         'OPT_LOADS=$(( ${OPT_LOADS:-0} + 1 ))'
+    # a NON-optional dependency that fails (not found / its rc), handled by the
+    # unit: since U42 the unit is incomplete anyway — its next load runs it again
+    uf_unit "$fx" needs \
+        'if (( ${UF_FAIL:-0} )); then kk.uses nosuchdep 2>/dev/null || NEEDS_FB=1; fi' \
+        'NEEDS_LOADS=$(( ${NEEDS_LOADS:-0} + 1 ))'
     # a kcl unit that needs THE kcl unit `a` (R3: a name is resolved, then compared)
     uf_unit "$fx" needa \
         'kk.uses a || return' \
@@ -135,8 +141,11 @@ uf_run() {
     # and every config lookup points into the fixture — HOME is a fixture folder,
     # USERPROFILE / ProgramData (and the never-read PROGRAMDATA) are unset, and
     # the system folder /etc/kbool is replaced by __KK_CFG_ETC (kuse.sh's test
-    # hook). A snippet exports its own values to test a level.
-    UF_OUT="$(env -u KBOOL_HOME -u KBOOL_CONFIG -u VERBOSE_KKLASS -u KK_UNIT_DIR -u __KK_LOADED \
+    # hook). A snippet exports its own values to test a level. The child starts
+    # in the fixture's empty cwd/ folder (uses U3): a NAME lookup at a prompt
+    # searches $PWD first, and since the system units carry headers the suite's
+    # own folder (kkore/, when run as `bash tests/tests.sh`) would hold them.
+    UF_OUT="$(cd "$UF_FX/cwd" 2>/dev/null || cd "$UF_FX"; env -u KBOOL_HOME -u KBOOL_CONFIG -u VERBOSE_KKLASS -u KK_UNIT_DIR -u __KK_LOADED \
         -u USERPROFILE -u ProgramData -u PROGRAMDATA \
         HOME="$UF_FX/home" __KK_CFG_ETC="$UF_FX/etc/kbool" FX="$UF_FX" "$BASH" -c "$1" 2>&1)"
     UF_RC=$?

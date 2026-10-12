@@ -11,7 +11,8 @@ kt_test_init "KKLib" "$SCRIPT_DIR" "$@"
 # Source klib if needed
 KLIB_DIR="$SCRIPT_DIR/.."
 [[ -f "$KLIB_DIR/klib.sh" ]] && source "$KLIB_DIR/klib.sh"
-[[ -f "$KLIB_DIR/kerr.sh" ]] && source "$KLIB_DIR/kerr.sh" set_trap
+# units take no arguments (uses P8/C10): the ERR trap is an explicit ke.setTrap
+[[ -f "$KLIB_DIR/kerr.sh" ]] && source "$KLIB_DIR/kerr.sh" && ke.setTrap
 
 # ============================================================================
 # kl.getTopCaller() Tests
@@ -256,7 +257,8 @@ test_script="$TMP_DIR/error_test_$(date +%s)_$RANDOM.sh"
 cat > "$test_script" << 'EOF'
 #!/bin/bash
 source "$1"
-source "$2" "set_trap"
+source "$2"
+ke.setTrap
 # Force an error by calling a non-existent command
 false_command_that_does_not_exist 2>/dev/null
 EOF

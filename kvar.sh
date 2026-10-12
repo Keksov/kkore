@@ -1,10 +1,8 @@
 #!/bin/bash
-
-# Prevent multiple sourcing
-if [[ -n "${__KLIB_VARS_SOURCED:-}" ]]; then
-    return
-fi
-declare -g __KLIB_VARS_SOURCED=1
+[[ ${__KK_UNITS[@]@a} == A* ]] || source "${BASH_SOURCE%kvar.sh}../kbool.sh" || return
+kk.unit kvar || return $__kk_unit_rc
+# kvar.sh — kkore system unit (kklass/USES_PLAN.md U1): unique names, the frame stack,
+# variable helpers. Header lines (§7.4) instead of the old __KLIB_VARS_SOURCED guard.
 
 declare -gA __KLIB_VARS
 # Frame stack: three parallel INDEXED arrays keyed by frame depth. The frame id

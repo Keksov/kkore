@@ -1,20 +1,9 @@
 #!/bin/bash
-
-# Prevent multiple sourcing
-if [[ -n "${__KLIB_CFG_SOURCED:-}" ]]; then
-    return
-fi
-declare -g __KLIB_CFG_SOURCED=1
-
-# kc.alias validates its key with kk._is_ident (klib.sh). kcfg.sh is also
-# sourced on its own (kkore test 003), so klib.sh is loaded here unless it
-# already is (its own guard would make a second source a no-op anyway).
-if [[ -z "${__KLIB_SOURCED:-}" ]]; then
-    __KLIB_CFG_DIR="${BASH_SOURCE[0]%/*}"
-    [[ "$__KLIB_CFG_DIR" == "${BASH_SOURCE[0]}" ]] && __KLIB_CFG_DIR=.
-    source "$__KLIB_CFG_DIR/klib.sh"
-    unset __KLIB_CFG_DIR
-fi
+[[ ${__KK_UNITS[@]@a} == A* ]] || source "${BASH_SOURCE%kcfg.sh}../kbool.sh" || return
+kk.unit kcfg || return $__kk_unit_rc
+# kcfg.sh — kkore system unit (kklass/USES_PLAN.md U1): the kc.* key/value config.
+# kc.alias validates its key with kk._is_ident (klib.sh), which kbool.sh always
+# loads first; a direct `source kcfg.sh` bootstraps kbool.sh (no source line of its own).
 
 declare -gA __KLIB_CONFIG
 

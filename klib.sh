@@ -1,10 +1,10 @@
 #!/bin/bash
-
-# Prevent multiple sourcing
-if [[ -n "${__KLIB_SOURCED:-}" ]]; then
-    return
-fi
-declare -g __KLIB_SOURCED=1
+[[ ${__KK_UNITS[@]@a} == A* ]] || source "${BASH_SOURCE%klib.sh}../kbool.sh" || return
+kk.unit klib || return $__kk_unit_rc
+# klib.sh — kkore system unit (kklass/USES_PLAN.md U1): output helpers, the numeric
+# guards, kk.debug / kk.warn, kk._is_ident, kk._outName. The two header lines above
+# (§7.4) replace the old __KLIB_SOURCED guard: a direct `source klib.sh` bootstraps
+# kbool.sh, which loads every system unit once.
 
 kl.write() {
     echo -en "$*"

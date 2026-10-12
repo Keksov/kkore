@@ -22,19 +22,24 @@
 #                           kk._unit_forget_class hook kklass defines) so the next
 #                           source loads it again. rc 0 / 1 not registered / 2 error
 #                           (no name, a system unit kbool.sh loaded, a unit loading now).
-#   kk.uses ARG...          load units once. ARG with `/`, `\` or ending in `.sh` is a
-#                           PATH (relative = relative to the calling file); anything
-#                           else is a unit NAME, ALWAYS resolved — the calling file's
-#                           folder, then the project paths (the merged config
+#   kk.uses [--optional] ARG...  load units once. ARG with `/`, `\` or ending in `.sh`
+#                           is a PATH (relative = relative to the calling file); anything
+#                           else is a unit NAME, ALWAYS resolved (U43: except a loaded
+#                           kkore / kklass unit, which is never resolved again) — the
+#                           calling file's folder (a relative calling file against the
+#                           PWD it was loaded from; without a calling file only at an
+#                           interactive prompt: $PWD), then the project paths (the merged config
 #                           `unitpath`, U1b), then the system paths
 #                           (kkore, kklass, kcl/*) — and compared with the unit of that
 #                           name already loaded: the same file is a no-op, another file
 #                           is an error (owner 2026-10-06). Only files carrying the
 #                           header count for a NAME lookup; other files are reachable
 #                           by path only. A name no lookup finds but that is loaded
-#                           (the system units until they carry headers) is a no-op.
+#                           (kuse and kbool, which carry no header) is a no-op.
 #                           rc 0 = all loaded (or already loaded); rc != 0 = the first
 #                           failure (rc 2 for a loader error, else the unit's own rc).
+#                           A failure taints the unit being loaded (U42), unless
+#                           --optional: then it is silent and taints nothing.
 #   kk.namespace X [Y ...]  declare more function namespaces (X.*) of the calling file,
 #                           besides the unit's own name (kk.unit declares that one):
 #                           kklass refuses a class or an instance named like a declared
@@ -56,11 +61,13 @@
 # Completion (U34). kk.uses knows a unit's rc: a failed load is forgotten, so a
 # retry loads it again. A PLAIN `source unit.sh` returns its rc to the caller
 # only, so a plain-sourced unit counts as complete once its source frame has
-# returned — unless a STRUCTURAL loader error happened inside its load (a header
-# error, a cycle, a unit-name/identity clash, a use of an incomplete unit): then
-# it is marked incomplete and a later kk.uses of it is an error until
-# `kk.unit --forget NAME`. A dependency that is merely not found or fails with
-# its own rc does NOT mark it — the unit may handle that (`kk.uses opt || ...`).
+# returned — unless a loader error happened inside its load (a header error, a
+# cycle, a unit-name/identity clash; since U42 also ANY failed kk.uses in it that
+# is not `--optional`: not found, a bad name, a dependency's own rc): then it is
+# marked incomplete, and its next load — a plain source or kk.uses — runs it
+# again (U42, owner 2026-10-09; before, kk.uses said "not completely loaded"
+# until `kk.unit --forget`). A dependency the unit handles itself is
+# `kk.uses --optional dep || fallback`.
 # A plain-sourced unit that fails by its own `return N` cannot be told from a
 # complete one. A file WITHOUT the header loaded by `kk.uses PATH` is remembered
 # by its lexically normalised path (and never by name).
@@ -94,6 +101,8 @@
 #   __KK_UNIT_IDX      name -> the first HEADERED candidate ('' = none)
 #   __KK_UNIT_RES      callerdir<US>name -> what the name resolves to from there ('' = nothing)
 #   __KK_UNIT_HIT      callerfile<US>name -> the registered file it matched (kk.uses fast path)
+#   __KK_FILE_PWD      relative file spelling -> the PWD it was loaded from (U43): a relative
+#                      calling file is resolved against it, not against the current PWD
 #   __KK_DEFINES       define name -> 1: the merged `defines` of the config levels (U1b, U31)
 #   __KK_CFG           key -> the merged config value (list keys: newline-terminated entries)
 #   __KK_CFG_LV        LEVEL/key -> one level's parsed value; LEVEL/key! = that level reset the list
@@ -116,7 +125,7 @@ kk._unit_tables() {
     set +u
     for __kk_t in __KK_UNITS __KK_UNIT_SRC __KK_UNIT_BOT __KK_UNIT_DONE __KK_UNIT_FAIL \
                   __KK_UNIT_SYS __KK_UNIT_CLASSES __KK_UNIT_FILES __KK_UNIT_CAND __KK_UNIT_IDX \
-                  __KK_UNIT_RES __KK_UNIT_HIT __KK_DEFINES __KK_CFG __KK_CFG_LV __KK_NAMESPACES; do
+                  __KK_UNIT_RES __KK_UNIT_HIT __KK_DEFINES __KK_CFG __KK_CFG_LV __KK_NAMESPACES __KK_FILE_PWD; do
         # keep an ASSIGNED assoc; replace anything else (unset, declared-but-
         # unassigned — whose `${R[@]@a}` reads "A" —, a scalar, an indexed array)
         if [[ ${!__kk_t@a} != *A* ]]; then
@@ -240,7 +249,10 @@ kk._unit_has_header() {
 # which counts — a unit using itself is a cycle).
 #   rc 0: the unit's source frame has returned and no error was seen while it
 #         loaded -> it is complete (a plain-sourced unit is marked done lazily, here);
-#   rc 2: its frame is still on the stack (cycle) or it was tainted (U34); printed.
+#   rc 2: its frame is still on the stack (cycle); printed;
+#   rc 3: its load has ended but was tainted (U34: a structural error, or since
+#         U42 any failed non-optional kk.uses inside it): NOT complete — silent;
+#         the caller drops the registration and loads the unit again (U42).
 kk._unit_check() {
     [[ ${__KK_LOADED[@]@a} == A ]] || return 2       # no registry of this shell (R14, U1b R2)
     [[ ${2-} == [0-9]* && ${2-} != *[!0-9]* ]] || return 2   # MIN reaches (( ))
@@ -263,20 +275,18 @@ kk._unit_check() {
         fi
     fi
     if [[ -n ${__KK_UNIT_FAIL[$1]+x} ]]; then
-        kk._unit_err "unit '$1' is not completely loaded: an error stopped its earlier load (kk.unit --forget $1 loads it again)"
-        return 2
+        return 3        # its load ended incompletely: the caller loads it again (U42)
     fi
     __KK_UNIT_DONE[$1]=1
     return 0
 }
 
-# kk._unit_taint MIN — a STRUCTURAL load error happened (a header error, a cycle,
-# a unit-name/identity clash, a use of an incomplete unit): mark the innermost
-# unit still being loaded (a `source` frame at index >= MIN in this function's
-# view whose registration matches it) as not completely loaded (U34). Never
-# called for a dependency that is not found or fails with its own rc — the unit
-# may handle that (R1). A unit loaded by kk.uses is forgotten by kk.uses anyway;
-# this is what catches a PLAIN-sourced one.
+# kk._unit_taint MIN — a load error happened (a header error, a cycle, a
+# unit-name/identity clash; since U42 any failed non-optional kk.uses): mark the
+# innermost unit still being loaded (a `source` frame at index >= MIN in this
+# function's view whose registration matches it) as not completely loaded (U34):
+# its next load runs it again (U42). kk.uses checks a unit it loaded right after
+# its source; this is what catches a PLAIN-sourced one.
 kk._unit_taint() {
     [[ ${__KK_LOADED[@]@a} == A ]] || return 2       # no registry of this shell (R14, U1b R2)
     [[ ${1-} == [0-9]* && ${1-} != *[!0-9]* ]] || return 2   # MIN reaches (( ))
@@ -330,6 +340,44 @@ kk._unit_register() {
     unset '__KK_UNIT_FAIL[$1]'
 }
 
+# kk._unit_core NAME — rc 0 when the REGISTERED unit NAME is a system unit
+# (kbool.sh loaded it) or lives directly in a non-glob system path folder (kkore,
+# kklass): U43 — such a name is never resolved again, so a file of that name in
+# the caller's folder (or the PWD) cannot take its place. rc 1 otherwise.
+kk._unit_core() {
+    [[ ${__KK_LOADED[@]@a} == A ]] || return 2       # no registry of this shell (R14)
+    [[ -n ${__KK_UNITS[${1:-.}]+x} ]] || return 1
+    [[ -z ${__KK_UNIT_SYS[$1]+x} ]] || return 0
+    local __kk_e __kk_n __kk_x
+    kk._unit_lexnorm "${__KK_UNITS[$1]%[/\\]*}"
+    __kk_x=$__kk_n
+    for __kk_e in "${__KK_UNIT_SYSPATH[@]}"; do
+        [[ $__kk_e != */\* ]] || continue
+        kk._unit_lexnorm "$__kk_e"
+        [[ $__kk_n != "$__kk_x" ]] || return 0
+    done
+    return 1
+}
+
+# kk._unit_caller_dir FILE -> __kk_d: the folder of a calling FILE (U43). An
+# absolute FILE: its folder. A RELATIVE spelling is taken against the PWD
+# recorded when that file was loaded (kk.unit; kbool.sh for the files on the
+# stack at its boot — a script that cd's after loading kbool keeps its folder),
+# else against the PWD at its first kk.uses (recorded then).
+kk._unit_caller_dir() {
+    [[ ${__KK_LOADED[@]@a} == A ]] || return 2       # no registry of this shell (R14)
+    if [[ $1 == /* || $1 == [A-Za-z]:* ]]; then
+        kk._unit_dir "$1"
+        return 0
+    fi
+    if [[ -z ${__KK_FILE_PWD[$1]+x} ]]; then __KK_FILE_PWD[$1]=$PWD; fi
+    case $1 in
+        */*|*\\*) __kk_d=${__KK_FILE_PWD[$1]}/${1%[/\\]*} ;;
+        *) __kk_d=${__KK_FILE_PWD[$1]} ;;
+    esac
+    return 0
+}
+
 # kk._unit_drop NAME — forget a unit: its classes first (the kklass hook), then
 # every registry entry. No checks.
 kk._unit_drop() {
@@ -354,7 +402,7 @@ kk._unit_reset() {
     unset __KK_UNITS __KK_UNIT_SRC __KK_UNIT_BOT __KK_UNIT_DONE __KK_UNIT_FAIL __KK_UNIT_SYS \
           __KK_UNIT_CLASSES __KK_UNIT_FILES __KK_UNIT_CAND __KK_UNIT_IDX __KK_UNIT_RES \
           __KK_UNIT_HIT __KK_DEFINES __KK_UNIT_PROJPATH __KK_UNIT_SYSPATH __KK_UNIT_IDX_OK \
-          __KK_LOADED __KK_CFG __KK_CFG_LV __KK_NAMESPACES __KK_PROJECT __KK_UNIT_USED __KK_CFG_VKW
+          __KK_LOADED __KK_CFG __KK_CFG_LV __KK_NAMESPACES __KK_FILE_PWD __KK_PROJECT __KK_UNIT_USED __KK_CFG_VKW
     kk._unit_tables
 }
 
@@ -509,7 +557,8 @@ kk._unit_index_build() {
 kk._unit_find() {
     [[ ${__KK_LOADED[@]@a} == A ]] || return 2       # no registry of this shell (R14, U1b R2)
     local __kk_l __kk_f
-    if kk._unit_has_header "$2/$1.sh" "$1"; then
+    # an empty DIR: no caller-folder step (U43: no calling file, not at a prompt)
+    if [[ -n ${2-} ]] && kk._unit_has_header "$2/$1.sh" "$1"; then
         __kk_found=$2/$1.sh
         return 0
     fi
@@ -552,7 +601,7 @@ kk.unit() {
         return
     fi
     local __kk_name=${1-} __kk_src=${BASH_SOURCE[1]-} __kk_stem __kk_a __kk_p __kk_d __kk_n __kk_m \
-          __kk_ai=0 __kk_vo=0
+          __kk_ai=0 __kk_vo=0 __kk_id=0
     __kk_unit_rc=2
     if [[ ${FUNCNAME[1]-} != source || -z $__kk_src ]]; then
         kk._unit_err "kk.unit ${__kk_name}: not the header of a unit file (it must be loaded by source or kk.uses)"
@@ -597,18 +646,29 @@ kk.unit() {
             kk._unit_taint 3
             return 2
         fi
-        if [[ -z ${__KK_UNIT_DONE[$__kk_name]+x} ]] && ! kk._unit_check "$__kk_name" 3; then
+        __kk_m=0
+        if [[ -z ${__KK_UNIT_DONE[$__kk_name]+x} ]]; then kk._unit_check "$__kk_name" 3 || __kk_m=$?; fi
+        if (( __kk_m == 2 )); then
             kk._unit_taint 3
             return 2
         fi
-        __kk_unit_rc=0
-        return 1
+        if (( __kk_m == 0 )); then
+            __kk_unit_rc=0
+            return 1
+        fi
+        # rc 3: an earlier load of this file ended incompletely (U34/U42) —
+        # forget it (its classes too) and load it again below
+        kk._unit_drop "$__kk_name"
     fi
     # a unit loaded (by any means) before kk.project could have read the defines
     # and resolved names without the project: kk.project is refused from now on (U37)
     # U22/U40: a unit's name is a function namespace — it may not be a built
-    # class or a live instance (checked before anything is registered)
-    if kk._is_ident "$__kk_name" && [[ -z ${__KK_NAMESPACES[$__kk_name]+x} ]] \
+    # class or a live instance (checked before anything is registered).
+    # kk._is_ident lives in klib, a system unit whose OWN header runs before its
+    # body (uses U3): until kbool.sh has marked klib loaded, the name is not
+    # declared here — kbool.sh declares every system unit's name after the boot.
+    if [[ -n ${__KK_UNIT_DONE[klib]+x} ]] && kk._is_ident "$__kk_name"; then __kk_id=1; fi
+    if (( __kk_id )) && [[ -z ${__KK_NAMESPACES[$__kk_name]+x} ]] \
        && ! kk._ns_free "$__kk_name" "$__kk_a" "unit header 'kk.unit $__kk_name' in '$__kk_src'"; then
         kk._unit_taint 3
         return 2
@@ -616,9 +676,11 @@ kk.unit() {
     if [[ -z $__KK_UNIT_USED ]]; then __KK_UNIT_USED=$__kk_name; fi
     __KK_UNITS[$__kk_name]=$__kk_a
     __KK_UNIT_SRC[$__kk_name]=$__kk_src
+    # U43: a relative spelling is resolved later against the PWD of this load
+    if [[ $__kk_src != "$__kk_a" ]]; then __KK_FILE_PWD[$__kk_src]=$PWD; fi
     __KK_UNIT_BOT[$__kk_name]=$(( ${#BASH_SOURCE[@]} - 2 ))
     unset '__KK_UNIT_DONE[$__kk_name]' '__KK_UNIT_FAIL[$__kk_name]'
-    if kk._is_ident "$__kk_name"; then kk._ns_declare "$__kk_name" "$__kk_name" "$__kk_a"; fi
+    if (( __kk_id )); then kk._ns_declare "$__kk_name" "$__kk_name" "$__kk_a"; fi
     kk._unit_dir "$__kk_src"
     KK_UNIT_DIR=$__kk_d
     __kk_unit_rc=0
@@ -684,29 +746,51 @@ kk.uses() {
     kk._uses "${BASH_SOURCE[1]-}" "$@"
 }
 
-# kk._uses CALLER ARG... — kk.uses' body. CALLER = the calling file (BASH_SOURCE[1]
-# of kk.uses, '' at a prompt). Frame indices seen from here are one deeper than
-# from kk.uses: the caller's frame is 3 for kk._unit_check / kk._unit_taint.
+# kk._uses CALLER [--optional] ARG... — kk.uses' body. CALLER = the calling file
+# (BASH_SOURCE[1] of kk.uses, '' at a prompt / at the top level of bash -c,
+# bash -s or a pipe). Frame indices seen from here are one deeper than from
+# kk.uses: the caller's frame is 3 for kk._unit_check / kk._unit_taint.
+# U42 (owner 2026-10-09): every failure — not found, a bad name, the unit's own
+# rc != 0, a structural error, a unit whose own load was left incomplete —
+# taints the unit being loaded around this call (U34), so its next load (a
+# plain source or kk.uses) runs it again instead of counting it complete.
+# `--optional` (leading) marks the dependencies optional: a failure neither
+# taints nor prints the loader's not-found / load-failed message; the rc still
+# reports it (`kk.uses --optional extra || fallback`).
 kk._uses() {
     # an exported kk._uses called on its own in a registry-less child (R14)
     [[ ${__KK_LOADED[@]@a} == A ]] || { printf 'kbool: error: kk.uses: kbool.sh is not loaded\n' >&2; return 2; }
-    local __kk_caller=$1
+    local __kk_caller=$1 __kk_opt=0
     shift
+    while [[ ${1-} == --optional ]]; do
+        __kk_opt=1
+        shift
+    done
     local -a __kk_args=("$@")
-    local __kk_a __kk_f __kk_nm __kk_cdir __kk_d __kk_n __kk_k __kk_rc __kk_sv __kk_svset __kk_hl \
+    local __kk_a __kk_f __kk_nm __kk_cdir="" __kk_pdir __kk_d __kk_n __kk_k __kk_rc __kk_sv __kk_svset __kk_hl \
           __kk_found __kk_m __kk_p __kk_key
     set --
     if (( ${#__kk_args[@]} == 0 )); then
         kk._unit_err "kk.uses: no unit named"
+        (( __kk_opt )) || kk._unit_taint 3
         return 2
     fi
-    # the calling file's folder: relative paths and the first lookup place (U12, U14)
-    if [[ -n $__kk_caller ]]; then
-        kk._unit_dir "$__kk_caller"
-        __kk_cdir=$__kk_d
-    else
-        __kk_cdir=$PWD
-    fi
+    # the calling file's folder (U12; U14 as amended by U43): a relative PATH is
+    # relative to it ($PWD without a calling file); a NAME is looked up there
+    # first — without a calling file only at an interactive prompt ($PWD), never
+    # from bash -c / bash -s / a pipe; a relative calling file is taken against
+    # the PWD it was loaded from (kk._unit_caller_dir)
+    case $__kk_caller in
+        ''|main|environment)
+            __kk_pdir=$PWD
+            if [[ $- == *i* ]]; then __kk_cdir=$PWD; fi
+            ;;
+        *)
+            kk._unit_caller_dir "$__kk_caller"
+            __kk_cdir=$__kk_d
+            __kk_pdir=$__kk_d
+            ;;
+    esac
     for __kk_a in "${__kk_args[@]}"; do
         __kk_hl=0
         if [[ $__kk_a == */* || $__kk_a == *\\* || $__kk_a == *.sh ]]; then
@@ -714,7 +798,7 @@ kk._uses() {
             if [[ $__kk_a == /* || $__kk_a == [A-Za-z]:* ]]; then
                 __kk_f=$__kk_a
             else
-                __kk_f=$__kk_cdir/$__kk_a
+                __kk_f=$__kk_pdir/$__kk_a
             fi
             __kk_nm=${__kk_f##*[/\\]}
             __kk_nm=${__kk_nm%.sh}
@@ -728,24 +812,31 @@ kk._uses() {
             # not) closes kk.project
             if [[ -z $__KK_UNIT_USED ]]; then __KK_UNIT_USED=$__kk_a; fi
             if [[ ! -f $__kk_f ]]; then
-                kk._unit_err "kk.uses: unit file '$__kk_a' not found (relative to '$__kk_cdir')"
+                if (( ! __kk_opt )); then
+                    kk._unit_err "kk.uses: unit file '$__kk_a' not found (relative to '$__kk_pdir')"
+                    kk._unit_taint 3
+                fi
                 return 2
             fi
             if kk._unit_has_header "$__kk_f" "$__kk_nm"; then
                 if [[ -n ${__KK_UNITS[$__kk_nm]+x} ]]; then
                     if [[ ${__KK_UNITS[$__kk_nm]} == "$__kk_f" || ${__KK_UNITS[$__kk_nm]} -ef $__kk_f ]]; then
-                        if [[ -n ${__KK_UNIT_DONE[$__kk_nm]+x} ]] || kk._unit_check "$__kk_nm" 3; then
-                            continue
+                        __kk_m=0
+                        if [[ -z ${__KK_UNIT_DONE[$__kk_nm]+x} ]]; then kk._unit_check "$__kk_nm" 3 || __kk_m=$?; fi
+                        (( __kk_m != 0 )) || continue
+                        if (( __kk_m == 2 )); then
+                            (( __kk_opt )) || kk._unit_taint 3
+                            return 2
                         fi
-                        kk._unit_taint 3
+                        kk._unit_drop "$__kk_nm"     # rc 3: its load ended incomplete -> again (U42)
+                    else
+                        kk._unit_lexnorm "${__KK_UNITS[$__kk_nm]}"
+                        __kk_m=$__kk_n
+                        kk._unit_lexnorm "$__kk_f"
+                        kk._unit_err "unit '$__kk_nm' is already loaded from '$__kk_m'; refusing '$__kk_n' (unit names are unique)"
+                        (( __kk_opt )) || kk._unit_taint 3
                         return 2
                     fi
-                    kk._unit_lexnorm "${__KK_UNITS[$__kk_nm]}"
-                    __kk_m=$__kk_n
-                    kk._unit_lexnorm "$__kk_f"
-                    kk._unit_err "unit '$__kk_nm' is already loaded from '$__kk_m'; refusing '$__kk_n' (unit names are unique)"
-                    kk._unit_taint 3
-                    return 2
                 fi
             else
                 # a file without the header: tracked by its normalised path
@@ -757,48 +848,65 @@ kk._uses() {
                 fi
             fi
         else
-            # a unit NAME: always resolved from this caller, then compared with the
-            # unit of that name already loaded (owner 2026-10-06, "найти и сравнить").
+            # a unit NAME: resolved from this caller, then compared with the unit
+            # of that name already loaded (owner 2026-10-06, "найти и сравнить").
             # U37: a name kbool.sh did not load closes kk.project, found or not
             if [[ -z $__KK_UNIT_USED && -z ${__KK_UNIT_SYS[${__kk_a:-.}]+x} ]]; then
                 __KK_UNIT_USED=$__kk_a
             fi
             if [[ -z $__kk_a || $__kk_a == *[[:space:]*?\[]* ]]; then
                 kk._unit_err "kk.uses: '$__kk_a' is not a unit name"
+                (( __kk_opt )) || kk._unit_taint 3
                 return 2
             fi
-            __kk_key=$__kk_cdir$__KK_SEP$__kk_a
-            if [[ -z ${__KK_UNIT_RES[$__kk_key]+x} ]]; then
-                if kk._unit_find "$__kk_a" "$__kk_cdir"; then
-                    __KK_UNIT_RES[$__kk_key]=$__kk_found
-                else
-                    __KK_UNIT_RES[$__kk_key]=""
-                fi
-            fi
-            __kk_f=${__KK_UNIT_RES[$__kk_key]}
-            if [[ -n ${__KK_UNITS[$__kk_a]+x} ]]; then
+            __kk_f=""
+            if kk._unit_core "$__kk_a"; then
+                # U43: a loaded system unit (kkore, kklass) is never resolved again —
+                # a file of that name in the caller's folder cannot take its place
                 __kk_p=${__KK_UNITS[$__kk_a]}
-                if [[ -n $__kk_f && $__kk_f != "$__kk_p" && ! $__kk_f -ef $__kk_p ]]; then
+            else
+                __kk_key=$__kk_cdir$__KK_SEP$__kk_a
+                if [[ -z ${__KK_UNIT_RES[$__kk_key]+x} ]]; then
+                    if kk._unit_find "$__kk_a" "$__kk_cdir"; then
+                        __KK_UNIT_RES[$__kk_key]=$__kk_found
+                    else
+                        __KK_UNIT_RES[$__kk_key]=""
+                    fi
+                fi
+                __kk_f=${__KK_UNIT_RES[$__kk_key]}
+                __kk_p=${__KK_UNITS[$__kk_a]-}
+                if [[ -n $__kk_p && -n $__kk_f && $__kk_f != "$__kk_p" && ! $__kk_f -ef $__kk_p ]]; then
                     kk._unit_lexnorm "$__kk_p"
                     __kk_m=$__kk_n
                     kk._unit_lexnorm "$__kk_f"
                     kk._unit_err "unit '$__kk_a' is already loaded from '$__kk_m'; here it resolves to '$__kk_n' (unit names are unique)"
-                    kk._unit_taint 3
+                    (( __kk_opt )) || kk._unit_taint 3
                     return 2
                 fi
-                # the same file — or a loaded unit no lookup finds (the system
-                # units until they carry headers, U3)
-                if [[ -n ${__KK_UNIT_DONE[$__kk_a]+x} ]] || kk._unit_check "$__kk_a" 3; then
+            fi
+            if [[ -n ${__KK_UNITS[$__kk_a]+x} ]]; then
+                # the same file — or a loaded unit no lookup finds (kuse, kbool,
+                # a unit loaded by path from outside the search path)
+                __kk_m=0
+                if [[ -z ${__KK_UNIT_DONE[$__kk_a]+x} ]]; then kk._unit_check "$__kk_a" 3 || __kk_m=$?; fi
+                if (( __kk_m == 0 )); then
                     if [[ $__kk_caller == /* ]]; then
                         __KK_UNIT_HIT[$__kk_caller$__KK_SEP$__kk_a]=$__kk_p
                     fi
                     continue
                 fi
-                kk._unit_taint 3
-                return 2
+                if (( __kk_m == 2 )); then
+                    (( __kk_opt )) || kk._unit_taint 3
+                    return 2
+                fi
+                kk._unit_drop "$__kk_a"         # rc 3: its load ended incomplete -> again (U42)
+                [[ -n $__kk_f ]] || __kk_f=$__kk_p
             fi
             if [[ -z $__kk_f ]]; then
-                kk._unit_err "kk.uses: unit '$__kk_a' not found (searched '$__kk_cdir', the project and the system paths; a file without the header 'kk.unit $__kk_a' is loaded by path only)"
+                if (( ! __kk_opt )); then
+                    kk._unit_err "kk.uses: unit '$__kk_a' not found (searched ${__kk_cdir:+"'$__kk_cdir', "}the project and the system paths; a file without the header 'kk.unit $__kk_a' is loaded by path only)"
+                    kk._unit_taint 3
+                fi
                 return 2
             fi
             __kk_nm=$__kk_a
@@ -815,18 +923,29 @@ kk._uses() {
         fi
         __kk_unit_rc=0
         if (( __kk_rc != 0 )); then
-            # forget a failed load, so a retry loads it again (C12). The CALLER is
-            # not marked incomplete: it may handle the failure (R1/C1); a structural
-            # error inside the failed unit has marked it already (kk.unit).
+            # forget a failed load, so a retry loads it again (C12); the calling
+            # unit is tainted (U42) unless the dependency is optional
             if [[ ${__KK_UNITS[$__kk_nm]-} == "$__kk_f" && -z ${__KK_UNIT_DONE[$__kk_nm]+x} ]]; then
                 kk._unit_drop "$__kk_nm"
             fi
-            kk._unit_err "kk.uses: loading unit '$__kk_nm' failed (rc=$__kk_rc)"
+            if (( ! __kk_opt )); then
+                kk._unit_err "kk.uses: loading unit '$__kk_nm' failed (rc=$__kk_rc)"
+                kk._unit_taint 3
+            fi
             return "$__kk_rc"
         fi
         if [[ ${__KK_UNITS[$__kk_nm]-} == "$__kk_f" ]]; then
+            if [[ -n ${__KK_UNIT_FAIL[$__kk_nm]+x} ]]; then
+                # rc 0, but a failed dependency or a structural error inside its
+                # load left it incomplete (U34/U42): not loaded
+                kk._unit_drop "$__kk_nm"
+                if (( ! __kk_opt )); then
+                    kk._unit_err "kk.uses: unit '$__kk_nm' is not completely loaded: a dependency or a structural error failed inside its load"
+                    kk._unit_taint 3
+                fi
+                return 2
+            fi
             __KK_UNIT_DONE[$__kk_nm]=1
-            unset '__KK_UNIT_FAIL[$__kk_nm]'
             if [[ $__kk_hl == 0 && $__kk_a != *[/\\]* && $__kk_a != *.sh && $__kk_caller == /* ]]; then
                 __KK_UNIT_HIT[$__kk_caller$__KK_SEP$__kk_a]=$__kk_f
             fi

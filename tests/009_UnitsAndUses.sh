@@ -140,8 +140,8 @@ uf_run 'set -e; UF_FAIL=1; source "$FX/kbool.sh"; kk.uses fail || echo caught; e
 uf_check "set -e: 'kk.uses x || ...' survives a failing unit (plain source, no builtin source) [C11]" $?
 
 uf_run 'UF_FAIL=1; source "$FX/kcl/dep/dep.sh"; r1=$?; UF_FAIL=0; kk.uses dep; r2=$?; kk.unit --forget dep; r3=$?; kk.uses dep; echo "r=$r1/$r2/$r3/$? D=$DEP_LOADS"'
-[[ "$UF_OUT" == *"r=2/2/0/0 D=2" && "$UF_OUT" == *"not completely loaded"* ]]
-uf_check "a plain-sourced unit with a STRUCTURAL error inside its load (a header error): kk.uses says 'not completely loaded' (rc 2); --forget then reloads [U34, R1]" $?
+[[ "$UF_OUT" == *"r=2/0/0/0 D=3" && "$UF_OUT" != *"not completely loaded"* ]]
+uf_check "a plain-sourced unit with a STRUCTURAL error inside its load (a header error) is incomplete: the next kk.uses runs it again (U42; was: 'not completely loaded' until --forget) [U34, U42]" $?
 
 uf_run 'source "$FX/kcl/a/a.sh"; kk.uses a; echo "r=$? L=$A_LOADS"'
 [[ "$UF_OUT" == "r=0 L=1" ]]
@@ -224,8 +224,8 @@ uf_run 'export FX; "$BASH" "$FX/proj/main2.sh"'
 uf_check "the reverse: kcl/a loaded first, the project's 'kk.uses a' resolves to proj/a.sh -> rc 2 [R3]" $?
 
 uf_run 'export FX; "$BASH" "$FX/proj3/main.sh"'
-[[ "$UF_OUT" == *"rc=2 userklib=0" && "$UF_OUT" == *"unit 'klib' is already loaded from '$FX/kkore/klib.sh'"* ]]
-uf_check "a user klib.sh in the caller's folder vs the loaded system klib -> rc 2, not loaded [R3]" $?
+[[ "$UF_OUT" == "rc=0 userklib=0" ]]
+uf_check "a user klib.sh in the caller's folder: kk.uses klib is the loaded system klib, silently (U43: a loaded kkore/kklass unit is never resolved again; was rc 2) [R3, U43]" $?
 
 uf_run 'source "$FX/kbool.sh"; cd "$FX/kcl/a"; kk.uses a b; kk.uses a b; r1=$?; cd /; kk.uses a; echo "r=$r1/$? A=$A_LOADS"'
 [[ "$UF_OUT" == "r=0/0 A=1" ]]

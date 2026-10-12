@@ -145,9 +145,12 @@ uf_run 'export FX; source "$FX/kbool.sh"; export __KLIB_USE_SOURCED=1; export -f
 [[ "$UF_OUT" == "child r=0 L=1"$'\n'"rb=0 L=1 B=1" ]]
 uf_check "a child with an exported __KLIB_USE_SOURCED and every function exported: tables rebuilt, loads once [R2, C2]" $?
 
-uf_run '__KLIB_SOURCED=1; source "$FX/kbool.sh"; r=$?; [[ ${__KK_UNITS[@]@a} == A* ]] && g=on || g=off; echo "r=$r guard=$g isInt=$(type -t kk.isInt)"'
-[[ "$UF_OUT" == *"r=2 guard=off isInt=" && "$UF_OUT" == *"klib did not define kk.isInt"* ]]
-uf_check "a preset klib guard (__KLIB_SOURCED=1): klib defines nothing -> kbool.sh rc 2, guard off [R2]" $?
+# uses U3: the system units' hand-written guard variables are gone (unit headers),
+# so an inherited old guard no longer makes a module define nothing; the
+# "defines nothing" path itself (the sentinel check) is pinned by 013.
+uf_run 'export __KLIB_SOURCED=1 __KLIB_ERR_SOURCED=1 __KLIB_VARS_SOURCED=1 __KLIB_CFG_SOURCED=1; source "$FX/kbool.sh"; r=$?; [[ ${__KK_UNITS[@]@a} == A* ]] && g=on || g=off; echo "r=$r guard=$g isInt=$(type -t kk.isInt) setTrap=$(type -t ke.setTrap)"'
+[[ "$UF_OUT" == "r=0 guard=on isInt=function setTrap=function" ]]
+uf_check "preset old guard variables (__KLIB_SOURCED=1 ...): ignored since the unit headers, kbool.sh loads every system unit [R2, U3]" $?
 
 uf_run 'source "$FX/kbool.sh"; unset __KK_UNITS; source "$FX/kcl/a/a.sh"; echo "r=$? L=$A_LOADS"; source "$FX/kcl/a/a.sh"; kk.uses b; echo "rb=$? L=$A_LOADS B=$B_LOADS"'
 [[ "$UF_OUT" == "r=0 L=1"$'\n'"rb=0 L=1 B=1" ]]
