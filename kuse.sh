@@ -1,6 +1,8 @@
 #!/bin/bash
-# kkore/kuse.sh — the unit loader: kk.unit, kk.uses, kk.defined, kk.project, kk.config.
-# Design: kklass/USES_PLAN.md (decisions U1-U38, §7 amendments, header shapes §7.4).
+# kkore/kuse.sh — the unit loader: kk.unit, kk.uses, kk.namespace, kk.defined, kk.project,
+# kk.config.
+# Design: kklass/USES_PLAN.md (decisions U1-U44, §7 amendments, header shapes §7.4);
+# reference: kkore/README.md.
 #
 # A UNIT is a file whose first lines — after an optional shebang, blank lines and
 # `#` comment lines, all within its first 512 characters — are the two header
@@ -449,7 +451,8 @@ kk._unit_classes() {
 # protected (the documented gap, U40). Several files may share one namespace
 # (the first declaration names the owner) — only files in the OWNER'S FOLDER
 # (U44, owner 2026-10-14: a package, the thttpserver files sharing ths); a
-# file elsewhere, a file-less caller, or a unit NAMED like it is refused, and a
+# file elsewhere, a file-less caller, or a unit NAMED like it from another
+# folder is refused (a unit so named in the owner's folder shares it), and a
 # class-named namespace is never shared with a file but its class's own. A
 # class may take the name of its own unit's / file's namespace (kcl's
 # `class dateutils` in dateutils.sh).
