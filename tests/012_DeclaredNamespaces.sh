@@ -67,4 +67,52 @@ uf_run 'source "$FX/kbool.sh"; set -a; :; set +a; export -f kk.namespace kk._ns_
 [[ "$UF_OUT" == $'kbool: error: kk.namespace hz: kbool.sh is not loaded\nns=2\ndecl=2' ]]
 uf_check "R14: in a child without the registry kk.namespace and kk._ns_declare refuse (rc 2) before any table is touched — nothing evaluated" $?
 
+# ---------------------------------------------------------------------------
+# U44 (owner 2026-10-14, critic_u4 C5): an ALREADY declared namespace may be
+# shared only by a file in the SAME FOLDER as its owner (a package: the
+# thttpserver files share ths); a file elsewhere is refused (rc 2, the loading
+# unit tainted — U42 — so its next load runs and fails again); a namespace
+# that is a class declared in another file is never shared.
+uf_pkg() {   # uf_pkg FILE NAME BODY... — a relative-header unit at FILE (any folder of the tree)
+    local file=$1 name=$2; shift 2
+    mkdir -p "${file%/*}"
+    { printf '%s\n' '[[ ${__KK_UNITS[@]@a} == A* ]] || source "${BASH_SOURCE%'"$name"'.sh}../../kbool.sh" || return' \
+          "kk.unit $name || return \$__kk_unit_rc"; printf '%s\n' "$@"; } > "$file"
+}
+uf_pkg "$FX/kcl/pkg/pkga.sh" pkga 'kk.namespace shr clsns || return' 'shr.a() { :; }'
+uf_pkg "$FX/kcl/pkg/pkgb.sh" pkgb 'kk.uses pkga || return' 'kk.namespace shr || return' 'shr.b() { :; }'
+uf_pkg "$FX/kcl/pkg/pkgc.sh" pkgc 'PKGC_LOADS=$(( ${PKGC_LOADS:-0} + 1 ))' 'kk.uses pkga || return' 'kk.namespace clsns || return'
+for n in shr kk pkga TSetX; do
+    uf_user "$FX/proj/forn/f_$n.sh" "f_$n" "F_${n}_LOADS=\$(( \${F_${n}_LOADS:-0} + 1 ))" "kk.namespace $n || return" "$n.hijack() { echo HIJACK; }"
+done
+uf_user "$FX/proj/forn/shr.sh" shr 'FSHR_LOADS=$(( ${FSHR_LOADS:-0} + 1 ))' 'shr.hijack() { echo HIJACK; }'
+printf '%s\n' 'kk.namespace shr; echo "plain rc=$?"' > "$FX/proj/forn/plainshr.sh"
+
+uf_run 'source "$FX/kbool.sh"; kk.namespace TSetX || exit 7
+        kk.uses "$FX/kcl/pkg/pkgb.sh"; r=$?; v=${__KK_NAMESPACES[shr]-}
+        echo "pkgb=$r owner=${v%%$__KK_SEP*} b=$(declare -F shr.b)"
+        for n in shr kk pkga TSetX; do
+            f="$FX/proj/forn/f_$n.sh"; l="F_${n}_LOADS"
+            source "$f" 2>/dev/null; a=$?; kk.uses "$f" 2>/dev/null; b=$?; source "$f" 2>"$FX/err.$n"; c=$?
+            v=${__KK_NAMESPACES[$n]-}
+            echo "$n=$a$b$c runs=${!l:-0} owner=${v%%$__KK_SEP*} hijack=$(declare -F $n.hijack || echo none)"
+        done
+        source "$FX/proj/forn/shr.sh" 2>"$FX/err.unit"; echo "unit shr=$? runs=${FSHR_LOADS:-0} reg=${__KK_UNITS[shr]+yes}"
+        source "$FX/proj/forn/plainshr.sh" 2>/dev/null
+        kk.namespace shr 2>/dev/null; echo "nofile=$?"
+        kk.unit --forget pkga; source "$FX/kcl/pkg/pkga.sh"; echo "owner-again=$?"
+        cat "$FX/err.shr" "$FX/err.unit"'
+W=$'pkgb=0 owner=pkga b=shr.b\nshr=222 runs=3 owner=pkga hijack=none\nkk=222 runs=3 owner=kuse hijack=none\npkga=222 runs=3 owner=pkga hijack=none\nTSetX=222 runs=3 owner= hijack=none\nunit shr=2 runs=0 reg=\nplain rc=2\nnofile=2\nowner-again=0'
+[[ "$UF_OUT" == "$W"$'\n'* && "$UF_OUT" == *"kk.namespace shr: 'shr' is already the function namespace of unit pkga ("*"/kcl/pkg/pkga.sh); only a file in that folder may share it (U44)"* \
+   && "$UF_OUT" == *"unit header 'kk.unit shr' in '$FX/proj/forn/shr.sh': 'shr' is already the function namespace of unit pkga ("* ]]
+uf_check "U44: a second file in the owner's folder shares a declared namespace (rc 0, the owner stays); a unit or plain file in another folder, a file-less caller, or a unit NAMED like it is refused (rc 2, the unit tainted: every next load runs and fails again, nothing defined) — also for kk (kkore) and a unit's own name; the owner re-loads fine [U44, U42, critic_u4 C5]" $?
+
+uf_run 'source "$FX/kbool.sh"
+        kk._name_in_use() { [[ $1 == clsns ]] || return 1; [[ $2 -ef $FX/kcl/pkg/pkga.sh ]] && return 1; RESULT="a class declared at $FX/kcl/pkg/pkga.sh:9"; return 0; }
+        kk.uses "$FX/kcl/pkg/pkga.sh"; echo "pkga=$?"
+        source "$FX/kcl/pkg/pkgc.sh" 2>"$FX/err.c"; a=$?; source "$FX/kcl/pkg/pkgc.sh" 2>/dev/null; b=$?
+        echo "pkgc=$a$b runs=${PKGC_LOADS:-0}"; cat "$FX/err.c"'
+[[ "$UF_OUT" == $'pkga=0\npkgc=22 runs=2\n'*"kk.namespace clsns: 'clsns' is already a class declared at $FX/kcl/pkg/pkga.sh:9"* ]]
+uf_check "U44: a namespace that is a class declared in another file is never shared, not even within the owner's folder (rc 2, tainted) [U44]" $?
+
 kt_test_log "012_DeclaredNamespaces.sh completed"

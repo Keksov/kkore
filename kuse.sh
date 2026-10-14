@@ -43,7 +43,9 @@
 #   kk.namespace X [Y ...]  declare more function namespaces (X.*) of the calling file,
 #                           besides the unit's own name (kk.unit declares that one):
 #                           kklass refuses a class or an instance named like a declared
-#                           namespace (U22/U40, "Declared namespaces" below). rc 0 / 2.
+#                           namespace (U22/U40, "Declared namespaces" below). A name
+#                           another file declared is shared only from the owner's
+#                           folder (U44). rc 0 / 2.
 #   kk.defined NAME         rc 0 when NAME is a define of the merged config (U1b),
 #                           1 when not, 2 without a name.
 #   kk.project PATH|NAME    read a project file (U8-U11, U37): its unit folders,
@@ -444,9 +446,13 @@ kk._unit_classes() {
 #   * the kkore namespaces kk kl ke kv kc (kbool.sh; kklass also records kk kl
 #     ke kv and its own kkp in its table, so they are taken without kbool too).
 # A plain library that neither has a unit header nor calls kk.namespace is NOT
-# protected (the documented gap, U40). Several units may share one namespace;
-# the first declaration names the owner. A class may take the name of its own
-# unit's / file's namespace (kcl's `class dateutils` in dateutils.sh).
+# protected (the documented gap, U40). Several files may share one namespace
+# (the first declaration names the owner) — only files in the OWNER'S FOLDER
+# (U44, owner 2026-10-14: a package, the thttpserver files sharing ths); a
+# file elsewhere, a file-less caller, or a unit NAMED like it is refused, and a
+# class-named namespace is never shared with a file but its class's own. A
+# class may take the name of its own unit's / file's namespace (kcl's
+# `class dateutils` in dateutils.sh).
 # The other direction (U22: "a unit loaded AFTER a class of the same name is
 # caught at load"): kk.unit NAME and kk.namespace X refuse (rc 2) a name that is
 # already a built class or a live instance — through kklass's hook
@@ -472,10 +478,36 @@ kk._ns_free() {
     return 2
 }
 
+# kk._ns_share X FILE WHAT — X is ALREADY declared (U44, owner 2026-10-14):
+# rc 0 when FILE may share it — FILE is the owner's file (a repeat, a reload),
+# or a file in the owner's FOLDER (a package: thttpmessage, thttprouter and
+# thttpserver share ths) and X is not a class declared in another file; rc 2
+# (printed) otherwise: a file in another folder, a file-less caller (a prompt,
+# `bash -c`) sharing another's namespace, a class-named namespace (kcl's
+# `class dateutils`) claimed by any file but its class's own. WHAT names the
+# caller for the message.
+kk._ns_share() {
+    [[ ${__KK_LOADED[@]@a} == A ]] || return 2       # no registry of this shell (R14)
+    local __kk_o=${__KK_NAMESPACES[$1]-} __kk_of __kk_ou __kk_n __kk_d1 __kk_d2
+    __kk_ou=${__kk_o%%"$__KK_SEP"*}
+    __kk_of=${__kk_o#*"$__KK_SEP"}
+    if [[ $2 == "$__kk_of" ]] || [[ -n $2 && -n $__kk_of && $2 -ef $__kk_of ]]; then return 0; fi
+    __kk_d1=${2%[/\\]*} __kk_d2=${__kk_of%[/\\]*}     # the two folders
+    if [[ -n $2 && -n $__kk_of && $__kk_d1 -ef $__kk_d2 ]]; then
+        kk._ns_free "$1" "$2" "$3" || return 2
+        return 0
+    fi
+    if [[ -n $__kk_of ]]; then kk._unit_lexnorm "$__kk_of"; else __kk_n="no file"; fi
+    kk._unit_err "$3: '$1' is already the function namespace of ${__kk_ou:+unit $__kk_ou }($__kk_n); only a file in that folder may share it (U44)"
+    return 2
+}
+
 # kk.namespace X [Y ...] — declare more function namespaces of the calling file
 # (owner: the unit being loaded, if any). rc 0; rc 2 (printed) for no name, a
 # name that is not an identifier, a name that is already a class or a live
-# instance, or when kbool.sh is not loaded in this shell. A repeat is a no-op.
+# instance, a name another file declared unless that file is in this file's
+# folder (U44, kk._ns_share), or when kbool.sh is not loaded in this shell. A
+# repeat is a no-op.
 # Every rc-2 error with kbool loaded is a structural load error (U34/U42, U4-G1
 # R1): it taints the unit being loaded (frame 2 = the caller's source frame from
 # kk._unit_taint's view), so a plain-sourced unit whose kk.namespace failed is
@@ -510,6 +542,9 @@ kk.namespace() {
                 kk._unit_taint 2
                 return 2
             fi
+        elif ! kk._ns_share "$__kk_x" "$__kk_file" "kk.namespace $__kk_x"; then
+            kk._unit_taint 2
+            return 2
         fi
         kk._ns_declare "$__kk_x" "$__kk_u" "$__kk_file"
     done
@@ -526,7 +561,8 @@ kk.namespace() {
 #    cached per name in __KK_UNIT_IDX (a miss as ''), for the shell session (U16).
 # The result equals a full index of HEADERED files with first-match-wins (U13',
 # U15), but the first lookup costs one glob + one file read instead of reading
-# every candidate (kcl/*: 48 files, 29 of them units — P5, see the U1a ledger).
+# every candidate (kcl/*: 79 .sh files after U4, 32 of them kcl/tests, 29 of
+# them units in 26 folders; P5 was measured at 48 files, see the U1a ledger).
 # kk.project (U1b) sets __KK_UNIT_IDX_OK=0; the next lookup rebuilds both maps.
 kk._unit_index_build() {
     [[ ${__KK_LOADED[@]@a} == A ]] || return 2       # no registry of this shell (R14, U1b R2)
@@ -679,6 +715,13 @@ kk.unit() {
     if [[ -n ${__KK_UNIT_DONE[klib]+x} ]] && kk._is_ident "$__kk_name"; then __kk_id=1; fi
     if (( __kk_id )) && [[ -z ${__KK_NAMESPACES[$__kk_name]+x} ]] \
        && ! kk._ns_free "$__kk_name" "$__kk_a" "unit header 'kk.unit $__kk_name' in '$__kk_src'"; then
+        kk._unit_taint 3
+        return 2
+    fi
+    # U44: a unit NAMED like a namespace another file declared shares it — only
+    # from the owner's folder (a unit `ths` elsewhere would define ths.*)
+    if (( __kk_id )) && [[ -n ${__KK_NAMESPACES[$__kk_name]+x} ]] \
+       && ! kk._ns_share "$__kk_name" "$__kk_a" "unit header 'kk.unit $__kk_name' in '$__kk_src'"; then
         kk._unit_taint 3
         return 2
     fi
