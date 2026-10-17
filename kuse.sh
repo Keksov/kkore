@@ -248,7 +248,7 @@ kk._unit_has_header() {
 
 # kk._unit_check NAME MIN — the state of a REGISTERED unit not marked done.
 # MIN is the lowest frame index, in THIS function's view, that counts as an outer
-# load (kk.unit passes 3: 0 = here, 1 = kk.unit, 2 = the header's own file;
+# load (kk._unit passes 4: 0 = here, 1 = kk._unit, 2 = kk.unit, 3 = the header's own file;
 # kk._uses passes 3: 0 = here, 1 = kk._uses, 2 = kk.uses, 3 = the calling file,
 # which counts — a unit using itself is a cycle).
 #   rc 0: the unit's source frame has returned and no error was seen while it
@@ -639,6 +639,19 @@ kk.unit() {
         __kk_unit_rc=0
         return 1
     fi
+    kk._unit "$@"
+}
+
+# kk._unit — kk.unit past its fast path (kklass round 5 / P14, finding K7):
+# bash copies a function's body on every call, so the skip path above pays
+# only for this short wrapper (re-source 5.2 ~436 -> ~378 us, critic r5a C8).
+# ONE FRAME DEEPER than kk.unit — every stack index here is kk.unit's + 1:
+# BASH_SOURCE[2] / FUNCNAME[2] are the unit's `source` frame, kk._unit_taint
+# and kk._unit_check take MIN 4, __KK_UNIT_BOT is #BASH_SOURCE - 3, and under
+# extdebug the source's BASH_ARGC entry is [2] (kk._unit's and kk.unit's own
+# arguments come first: BASH_ARGV offset BASH_ARGC[0] + BASH_ARGC[1]).
+# kkore test 016 covers the extdebug indices.
+kk._unit() {
     if [[ ${__KK_LOADED[@]@a} != A ]]; then
         __kk_unit_rc=2
         printf 'kbool: error: kk.unit %s: kbool.sh is not loaded (line 1 of a unit header loads it)\n' "$*" >&2
@@ -648,33 +661,33 @@ kk.unit() {
         kk._unit_forget "${2-}"
         return
     fi
-    local __kk_name=${1-} __kk_src=${BASH_SOURCE[1]-} __kk_stem __kk_a __kk_p __kk_d __kk_n __kk_m \
+    local __kk_name=${1-} __kk_src=${BASH_SOURCE[2]-} __kk_stem __kk_a __kk_p __kk_d __kk_n __kk_m \
           __kk_ai=0 __kk_vo=0 __kk_id=0
     __kk_unit_rc=2
-    if [[ ${FUNCNAME[1]-} != source || -z $__kk_src ]]; then
+    if [[ ${FUNCNAME[2]-} != source || -z $__kk_src ]]; then
         kk._unit_err "kk.unit ${__kk_name}: not the header of a unit file (it must be loaded by source or kk.uses)"
         return 2
     fi
     if (( $# != 1 )) || [[ -z $__kk_name ]]; then
         kk._unit_err "kk.unit: usage 'kk.unit NAME || return \$__kk_unit_rc' (in '$__kk_src')"
-        kk._unit_taint 3
+        kk._unit_taint 4
         return 2
     fi
     __kk_stem=${__kk_src##*[/\\]}
     __kk_stem=${__kk_stem%.sh}
     if [[ $__kk_name != "$__kk_stem" ]]; then
         kk._unit_err "unit header 'kk.unit $__kk_name' does not match the file name '${__kk_src##*[/\\]}' (a unit's name is its file stem)"
-        kk._unit_taint 3
+        kk._unit_taint 4
         return 2
     fi
     # P8: units take no arguments. A `source FILE` without arguments pushes FILE on
     # BASH_ARGV with BASH_ARGC 1 (evalfile.c). With arguments the top entry is never
     # that: bash pushes the arguments (at top level they even stay on BASH_ARGV
-    # afterwards) or nothing. Under extdebug kk.unit's own frame comes first. The
+    # afterwards) or nothing. Under extdebug kk.unit's and kk._unit's frames come first. The
     # one false negative: `source FILE FILE` (one argument equal to the file's path).
     if [[ $BASHOPTS == *extdebug* ]]; then
-        __kk_ai=1
-        __kk_vo=${BASH_ARGC[0]-0}
+        __kk_ai=2
+        __kk_vo=$(( ${BASH_ARGC[0]-0} + ${BASH_ARGC[1]-0} ))
     fi
     if [[ ${BASH_ARGC[__kk_ai]-} != 1 || ${BASH_ARGV[__kk_vo]-} != "$__kk_src" ]]; then
         kk._unit_warn "unit '$__kk_name' called with arguments; units take none ($__kk_src)"
@@ -691,13 +704,13 @@ kk.unit() {
             __kk_m=$__kk_n
             kk._unit_lexnorm "$__kk_a"
             kk._unit_err "unit '$__kk_name' is already loaded from '$__kk_m'; refusing '$__kk_n' (unit names are unique)"
-            kk._unit_taint 3
+            kk._unit_taint 4
             return 2
         fi
         __kk_m=0
-        if [[ -z ${__KK_UNIT_DONE[$__kk_name]+x} ]]; then kk._unit_check "$__kk_name" 3 || __kk_m=$?; fi
+        if [[ -z ${__KK_UNIT_DONE[$__kk_name]+x} ]]; then kk._unit_check "$__kk_name" 4 || __kk_m=$?; fi
         if (( __kk_m == 2 )); then
-            kk._unit_taint 3
+            kk._unit_taint 4
             return 2
         fi
         if (( __kk_m == 0 )); then
@@ -718,14 +731,14 @@ kk.unit() {
     if [[ -n ${__KK_UNIT_DONE[klib]+x} ]] && kk._is_ident "$__kk_name"; then __kk_id=1; fi
     if (( __kk_id )) && [[ -z ${__KK_NAMESPACES[$__kk_name]+x} ]] \
        && ! kk._ns_free "$__kk_name" "$__kk_a" "unit header 'kk.unit $__kk_name' in '$__kk_src'"; then
-        kk._unit_taint 3
+        kk._unit_taint 4
         return 2
     fi
     # U44: a unit NAMED like a namespace another file declared shares it — only
     # from the owner's folder (a unit `ths` elsewhere would define ths.*)
     if (( __kk_id )) && [[ -n ${__KK_NAMESPACES[$__kk_name]+x} ]] \
        && ! kk._ns_share "$__kk_name" "$__kk_a" "unit header 'kk.unit $__kk_name' in '$__kk_src'"; then
-        kk._unit_taint 3
+        kk._unit_taint 4
         return 2
     fi
     if [[ -z $__KK_UNIT_USED ]]; then __KK_UNIT_USED=$__kk_name; fi
@@ -733,7 +746,7 @@ kk.unit() {
     __KK_UNIT_SRC[$__kk_name]=$__kk_src
     # U43: a relative spelling is resolved later against the PWD of this load
     if [[ $__kk_src != "$__kk_a" ]]; then __KK_FILE_PWD[$__kk_src]=$PWD; fi
-    __KK_UNIT_BOT[$__kk_name]=$(( ${#BASH_SOURCE[@]} - 2 ))
+    __KK_UNIT_BOT[$__kk_name]=$(( ${#BASH_SOURCE[@]} - 3 ))
     unset '__KK_UNIT_DONE[$__kk_name]' '__KK_UNIT_FAIL[$__kk_name]'
     if (( __kk_id )); then kk._ns_declare "$__kk_name" "$__kk_name" "$__kk_a"; fi
     kk._unit_dir "$__kk_src"
