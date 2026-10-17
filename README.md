@@ -410,7 +410,8 @@ kk.config colour; echo "unknown key: rc=$?"      # => unknown key: rc=2
 ## 6. Limitations
 
 * **No reload.** `kk.unit --forget` / `kk.class --forget` are development
-  hatches: live instances of a forgotten class keep their old functions.
+  hatches: live instances of a forgotten class keep their old functions, and
+  their names lose the taken-name protection (`kk.class --forget` warns).
 * **Unprotected plain libraries.** A library with neither a unit header nor a
   `kk.namespace` line declares nothing: `source libns.sh; T.new libns` still
   replaces its `libns.*` functions. Give it a header or one `kk.namespace` line.
