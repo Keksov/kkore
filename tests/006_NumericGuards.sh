@@ -206,9 +206,9 @@ else
 fi
 
 kt_test_start "1000 kk.isInt calls cost under 1 s [perf contract]"
-start="${EPOCHREALTIME/./}"
+start="${EPOCHREALTIME/[.,]/}"
 for ((i = 0; i < 1000; i++)); do kk.isInt "0000$i" || true; done
-end="${EPOCHREALTIME/./}"
+end="${EPOCHREALTIME/[.,]/}"
 elapsed_ms=$(( (10#$end - 10#$start) / 1000 ))
 if (( elapsed_ms < 1000 )); then
     kt_test_pass "${elapsed_ms} ms / 1000 calls"

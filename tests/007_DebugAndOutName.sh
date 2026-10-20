@@ -493,9 +493,9 @@ kk._outName "" 2>/dev/null
     && kt_test_pass "untouched" || kt_test_fail "RESULT='$RESULT' REPLY='$REPLY'"
 
 kt_test_start "2000 kk._outName calls cost under 1 s [perf contract]"
-start="${EPOCHREALTIME/./}"
+start="${EPOCHREALTIME/[.,]/}"
 for ((i = 0; i < 2000; i++)); do kk._outName "out$i" __p_ __q_ || true; done
-end="${EPOCHREALTIME/./}"
+end="${EPOCHREALTIME/[.,]/}"
 elapsed_ms=$(( (10#$end - 10#$start) / 1000 ))
 if (( elapsed_ms < 1000 )); then
     kt_test_pass "${elapsed_ms} ms / 2000 calls"
