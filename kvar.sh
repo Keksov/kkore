@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 [[ ${__KK_UNITS[@]@a} == A* ]] || source "${BASH_SOURCE%kvar.sh}../kbool.sh" || return
 kk.unit kvar || return $__kk_unit_rc
 # kvar.sh — kkore system unit (kklass/USES_PLAN.md U1): unique names, the frame stack,

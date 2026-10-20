@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Declared namespaces — kk.unit NAME and kk.namespace X declare function
 # namespaces (kklass/USES_PLAN.md U22 as amended by U40, phase U2b): kbool.sh
 # declares the kkore ones, the table __KK_NAMESPACES names their owner unit and

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # SystemUnitHeaders — the kkore modules are units (kklass/USES_PLAN.md phase U3:
 # §7.4 header shapes, C10, P3, P8, U1, U40; found_in_U1a lint).
 #
@@ -43,7 +43,7 @@ for u in "${SYS_UNITS[@]}"; do
     mapfile -t -n 3 head3 < "$f"
     want1='[[ ${__KK_UNITS[@]@a} == A* ]] || source "${BASH_SOURCE%'"$u"'.sh}../kbool.sh" || return'
     want2="kk.unit $u || return \$__kk_unit_rc"
-    [[ "${head3[0]}" == '#!/bin/bash' && "${head3[1]}" == "$want1" && "${head3[2]}" == "$want2" ]] || bad+=" $u"
+    [[ "${head3[0]}" == '#!/usr/bin/env bash' && "${head3[1]}" == "$want1" && "${head3[2]}" == "$want2" ]] || bad+=" $u"
 done
 if [[ -z "$bad" ]]; then kt_test_pass "4 headers"; else kt_test_fail "wrong or missing header:$bad"; fi
 

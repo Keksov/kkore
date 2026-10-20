@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # IdentifierLocale — kk._is_ident, kk._outName and kc.alias are locale-exact
 # (kklass round 4 / P12, findings L1 + L2, decision DR13).
 #

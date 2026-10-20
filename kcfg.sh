@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 [[ ${__KK_UNITS[@]@a} == A* ]] || source "${BASH_SOURCE%kcfg.sh}../kbool.sh" || return
 kk.unit kcfg || return $__kk_unit_rc
 # kcfg.sh — kkore system unit (kklass/USES_PLAN.md U1): the kc.* key/value config.

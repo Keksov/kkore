@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # unit_lint.sh — a reusable lint for unit files (uses phase U3; found_in_U1a,
 # critic C11; review R8). Not a test file: the runner only picks up NNN_*.sh.
 # Source it from any suite (kkore, kklass, kcl) and call:

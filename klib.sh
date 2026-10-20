@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 [[ ${__KK_UNITS[@]@a} == A* ]] || source "${BASH_SOURCE%klib.sh}../kbool.sh" || return
 kk.unit klib || return $__kk_unit_rc
 # klib.sh — kkore system unit (kklass/USES_PLAN.md U1): output helpers, the numeric

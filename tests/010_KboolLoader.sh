@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # kbool.sh — the startup file (kklass/USES_PLAN.md U1, U2, U4, P1, P3; phase U1a).
 # Fresh bash per scenario against a throw-away kbool tree (unit_fixture.sh); the
 # P3 scenarios damage copies of that tree and require rc != 0 on every failure

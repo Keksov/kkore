@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # KKLib Tests - Improved Version
 # Comprehensive tests for core kk library functions
 
@@ -82,7 +82,7 @@ mkdir -p "$TMP_DIR"
 temp_file="$TMP_DIR/temp_test_$(date +%s)_$RANDOM.sh"
 KLIB_FULL_PATH="$KLIB_DIR/klib.sh"
 cat > "$temp_file" << 'EOF'
-#!/bin/bash
+#!/usr/bin/env bash
 source "$1"
 kl.getTopCaller
 EOF
@@ -255,7 +255,7 @@ TRAP_ERRORS_ENABLED=true
 # Create a test script that will trigger an error
 test_script="$TMP_DIR/error_test_$(date +%s)_$RANDOM.sh"
 cat > "$test_script" << 'EOF'
-#!/bin/bash
+#!/usr/bin/env bash
 source "$1"
 source "$2"
 ke.setTrap

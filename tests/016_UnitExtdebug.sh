@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # UnitExtdebug — kk.unit under `shopt -s extdebug` and the K7 frame shifts (kklass round 5 / P14,
 # finding K7, critic r5a C8).
 #

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # kk.unit / kk.uses / kk.defined — the unit loader (kklass/USES_PLAN.md, phase U1a).
 # Every scenario runs in a FRESH bash (the registry is per shell) against a
 # throw-away kbool tree built by unit_fixture.sh: a copy of kbool.sh + kkore and

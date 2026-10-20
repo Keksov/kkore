@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Hardening regression tests for kkore
 # Guards the fixes from the optimization effort:
 #   P0.1 kv.new deterministic uniqueness (was a ~14% $RANDOM collision)

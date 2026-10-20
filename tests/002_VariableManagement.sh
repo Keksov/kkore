@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # KVar Tests - Variable Management Functions
 # Comprehensive tests for kvar.sh library functions
 

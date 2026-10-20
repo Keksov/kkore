@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Shared fixture for the unit-loader tests (009_UnitsAndUses.sh, 010_KboolLoader.sh).
 # Not a test file: the runner only picks up NNN_*.sh.
 #

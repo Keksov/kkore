@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # doc_examples.sh — run the examples a Markdown document marks as runnable, so
 # the documentation cannot rot silently (kklass/USES_PLAN.md phase U5). Sourced
 # by test files (kkore 015, kklass 142); not a test file — the ktests runner

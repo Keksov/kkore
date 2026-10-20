@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # NumericGuards — kk.isInt / kk.isNum (kcl review 2026-09-06, decision D1).
 #
 # X-INJ (findings G1-02, G3-04, TSH-01, TCA-05, M4, tregex T2, G6-06, G8-06):

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # FailedDepsAndLookup — owner decisions 2026-10-09 (uses U3 review):
 #
 # U42 (amends U1a R1, U34): a `kk.uses X` that fails inside a unit's load (X not

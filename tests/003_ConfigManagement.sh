@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # KConfig Tests - Configuration Management Functions
 # Comprehensive tests for kcfg.sh library functions
 

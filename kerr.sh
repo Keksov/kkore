@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 [[ ${__KK_UNITS[@]@a} == A* ]] || source "${BASH_SOURCE%kerr.sh}../kbool.sh" || return
 kk.unit kerr || return $__kk_unit_rc
 # kerr.sh — kkore system unit (kklass/USES_PLAN.md U1): the error handler. It uses

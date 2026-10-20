@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # DocExamples — the runnable examples of the kbool entry document (README.md in
 # the kbool root) and of the kkore reference (kkore/README.md) run as written
 # (kklass/USES_PLAN.md phase U5). The marker, the expected-output comments and

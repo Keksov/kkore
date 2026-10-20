@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # DebugAndOutName — kk.debug / kk.warn / kk._outName (kcl plan P9, finding
 # P8-F1; kk.warn added by tpipe P3.1, owner ruling D6 final of 2026-09-15).
 #

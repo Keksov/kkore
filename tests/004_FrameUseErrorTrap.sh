@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Core Tests - Frame stack (kvar), error-trap exit toggle (kerr) and kk.uses (kuse)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

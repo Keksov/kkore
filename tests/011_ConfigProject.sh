@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # The config reader, the config lookup chain, kk.project and kk.config
 # (kklass/USES_PLAN.md U5/U29/U30/U38, U7/U7', U8-U11, U31, U37, U2'; phase U1b).
 # Every scenario runs in a FRESH bash against the throw-away kbool tree of

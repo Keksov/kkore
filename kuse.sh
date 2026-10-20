@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # kkore/kuse.sh — the unit loader: kk.unit, kk.uses, kk.namespace, kk.defined, kk.project,
 # kk.config.
 # Design: kklass/USES_PLAN.md (decisions U1-U44, §7 amendments, header shapes §7.4);
