@@ -158,6 +158,10 @@ uf_win() {
     UF_WIN="${__d^^}:${__r//\//\\}"
 }
 
+# uf_onwin — true on MSYS2/Cygwin (drive-letter paths exist); uf_na TITLE — the case does not apply elsewhere
+uf_onwin() { [[ $OSTYPE == msys* || $OSTYPE == cygwin* ]]; }
+uf_na() { kt_test_start "$1"; kt_test_pass "N/A off MSYS2/Cygwin: needs a drive-letter path"; }
+
 # uf_cfg FILE LINE...  — write a config file (LF line ends)
 uf_cfg() {
     local f="$1"; shift

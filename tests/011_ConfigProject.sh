@@ -64,26 +64,35 @@ cfg_clean
 mkdir -p "$F/c/4/winlib" "$F/c/4/sub/lib2"
 uf_user "$F/c/4/winlib/wu.sh" wu 'WU_LOADS=$(( ${WU_LOADS:-0} + 1 ))'
 uf_user "$F/c/4/sub/lib2/wv.sh" wv 'WV_LOADS=$(( ${WV_LOADS:-0} + 1 ))'
-uf_win "$F/c/4/winlib"; W4LIB=$UF_WIN
-uf_win "$F/c/4/ck"; W4CK=$UF_WIN
-uf_cfg "$F/c/4/kb.conf" "unitpath = $W4LIB" 'unitpath = sub\lib2' "ckkdir = $W4CK"
-uf_run 'export KBOOL_CONFIG="$FX/c/4/kb.conf"; source "$FX/kbool.sh"; kk.uses wu wv; echo "u=$? $WU_LOADS$WV_LOADS"; source "$FX/show.sh"'
-W4LIBS=${W4LIB//\\//}; W4CKS=${W4CK//\\//}
-[[ "$UF_OUT" == "u=0 11"$'\n'"debug=:1 ckk=$W4CKS:0 up=$W4LIBS,$F/c/4/sub/lib2:0 def=:1 vk=unset pp=$W4LIBS,$F/c/4/sub/lib2," ]]
-uf_check "reader: an absolute C:\\ path keeps its drive spelling with '\\' -> '/', a relative path with '\\' joins the file's folder; kk.uses finds units there (no cygpath) [U7', C16, R1]" $?
+if uf_onwin; then
+    uf_win "$F/c/4/winlib"; W4LIB=$UF_WIN
+    uf_win "$F/c/4/ck"; W4CK=$UF_WIN
+    uf_cfg "$F/c/4/kb.conf" "unitpath = $W4LIB" 'unitpath = sub\lib2' "ckkdir = $W4CK"
+    uf_run 'export KBOOL_CONFIG="$FX/c/4/kb.conf"; source "$FX/kbool.sh"; kk.uses wu wv; echo "u=$? $WU_LOADS$WV_LOADS"; source "$FX/show.sh"'
+    W4LIBS=${W4LIB//\\//}; W4CKS=${W4CK//\\//}
+    [[ "$UF_OUT" == "u=0 11"$'\n'"debug=:1 ckk=$W4CKS:0 up=$W4LIBS,$F/c/4/sub/lib2:0 def=:1 vk=unset pp=$W4LIBS,$F/c/4/sub/lib2," ]]
+    uf_check "reader: an absolute C:\\ path keeps its drive spelling with '\\' -> '/', a relative path with '\\' joins the file's folder; kk.uses finds units there (no cygpath) [U7', C16, R1]" $?
+else uf_na "reader: an absolute C:\\ path keeps its drive spelling with '\\' -> '/', a relative path with '\\' joins the file's folder; kk.uses finds units there (no cygpath) [U7', C16, R1]"
+fi
 
 mkdir -p "$F/c/4/pkgs/pk1"
 uf_user "$F/c/4/pkgs/pk1/pk1.sh" pk1 'PK1_LOADS=1'
-uf_win "$F/c/4/pkgs"; W4PK=$UF_WIN
-uf_cfg "$F/c/4/pk.conf" "unitpath = $W4PK\\*"
-uf_run 'export KBOOL_CONFIG="$FX/c/4/pk.conf"; source "$FX/kbool.sh"; kk.uses pk1; echo "u=$? L=$PK1_LOADS"; kk.config unitpath; echo "$RESULT"'
-[[ "$UF_OUT" == "u=0 L=1"$'\n'"${W4PK//\\//}/*" ]]
-uf_check "reader: an absolute 'C:\\...\\pkgs\\*' entry is the every-subfolder form 'C:/.../pkgs/*' (was a literal folder '*') [U13, R1]" $?
+if uf_onwin; then
+    uf_win "$F/c/4/pkgs"; W4PK=$UF_WIN
+    uf_cfg "$F/c/4/pk.conf" "unitpath = $W4PK\\*"
+    uf_run 'export KBOOL_CONFIG="$FX/c/4/pk.conf"; source "$FX/kbool.sh"; kk.uses pk1; echo "u=$? L=$PK1_LOADS"; kk.config unitpath; echo "$RESULT"'
+    [[ "$UF_OUT" == "u=0 L=1"$'\n'"${W4PK//\\//}/*" ]]
+    uf_check "reader: an absolute 'C:\\...\\pkgs\\*' entry is the every-subfolder form 'C:/.../pkgs/*' (was a literal folder '*') [U13, R1]" $?
+else uf_na "reader: an absolute 'C:\\...\\pkgs\\*' entry is the every-subfolder form 'C:/.../pkgs/*' (was a literal folder '*') [U13, R1]"
+fi
 
-uf_win "$F/c/4/kb.conf"
-uf_run "export KBOOL_CONFIG='$UF_WIN'; source \"\$FX/kbool.sh\"; kk.uses wv; echo \"u=\$? \$WV_LOADS\"; kk.config unitpath; echo \"\${RESULT//\$'\\n'/,}\""
-[[ "$UF_OUT" == "u=0 1"$'\n'"$W4LIBS,C:/${F:3}/c/4/sub/lib2" ]]
-uf_check "KBOOL_CONFIG given as C:\\...: relative entries join its folder (separators folded to /), the unit is found" $?
+if uf_onwin; then
+    uf_win "$F/c/4/kb.conf"
+    uf_run "export KBOOL_CONFIG='$UF_WIN'; source \"\$FX/kbool.sh\"; kk.uses wv; echo \"u=\$? \$WV_LOADS\"; kk.config unitpath; echo \"\${RESULT//\$'\\n'/,}\""
+    [[ "$UF_OUT" == "u=0 1"$'\n'"$W4LIBS,C:/${F:3}/c/4/sub/lib2" ]]
+    uf_check "KBOOL_CONFIG given as C:\\...: relative entries join its folder (separators folded to /), the unit is found" $?
+else uf_na "KBOOL_CONFIG given as C:\\...: relative entries join its folder (separators folded to /), the unit is found"
+fi
 
 cfg_clean
 uf_cfg "$F/home/.kbool/config" 'unitpath = u1' 'defines = U'
@@ -115,15 +124,21 @@ uf_check "an empty KBOOL_CONFIG counts as unset; no config anywhere -> built-in 
 cfg_clean
 uf_cfg "$F/home/.kbool/config" 'defines = HOMEDEF'
 uf_cfg "$F/w/.kbool/config" 'defines = WINDEF'
-uf_win "$F/w"; WUP=$UF_WIN
-uf_run "export USERPROFILE='$WUP'; source \"\$FX/kbool.sh\"; kk.config defines; echo \"d=\$RESULT\""
-[[ "$UF_OUT" == "d=HOMEDEF" ]]
-uf_check "user level: ~/.kbool/config is read, \$USERPROFILE/.kbool/config is NOT when ~ has one (first found) [U29]" $?
+if uf_onwin; then
+    uf_win "$F/w"; WUP=$UF_WIN
+    uf_run "export USERPROFILE='$WUP'; source \"\$FX/kbool.sh\"; kk.config defines; echo \"d=\$RESULT\""
+    [[ "$UF_OUT" == "d=HOMEDEF" ]]
+    uf_check "user level: ~/.kbool/config is read, \$USERPROFILE/.kbool/config is NOT when ~ has one (first found) [U29]" $?
+else uf_na "user level: ~/.kbool/config is read, \$USERPROFILE/.kbool/config is NOT when ~ has one (first found) [U29]"
+fi
 
 rm -f "$F/home/.kbool/config"
-uf_run "export USERPROFILE='$WUP'; source \"\$FX/kbool.sh\"; kk.config defines; echo \"d=\$RESULT\""
-[[ "$UF_OUT" == "d=WINDEF" ]]
-uf_check "user level: no ~/.kbool/config -> \$USERPROFILE/.kbool/config (a C:\\ value as written) [U6, U29]" $?
+if uf_onwin; then
+    uf_run "export USERPROFILE='$WUP'; source \"\$FX/kbool.sh\"; kk.config defines; echo \"d=\$RESULT\""
+    [[ "$UF_OUT" == "d=WINDEF" ]]
+    uf_check "user level: no ~/.kbool/config -> \$USERPROFILE/.kbool/config (a C:\\ value as written) [U6, U29]" $?
+else uf_na "user level: no ~/.kbool/config -> \$USERPROFILE/.kbool/config (a C:\\ value as written) [U6, U29]"
+fi
 
 uf_run 'export HOME=; set -x; source "$FX/kbool.sh"; set +x; echo "r=$?"'
 [[ "$UF_OUT" == *"r=0" && "$UF_OUT" != *".kbool/config"* ]]
@@ -133,15 +148,21 @@ cfg_clean
 uf_cfg "$F/etc/kbool/config" 'defines = ETCDEF'
 uf_cfg "$F/pd/kbool/config" 'defines = PDDEF'
 uf_cfg "$F/pd2/kbool/config" 'defines = WRONG'
-uf_win "$F/pd"; WPD=$UF_WIN
-uf_run "export ProgramData='$WPD' PROGRAMDATA=\"\$FX/pd2\"; source \"\$FX/kbool.sh\"; kk.config defines; echo \"d=\$RESULT\""
-[[ "$UF_OUT" == "d=ETCDEF" ]]
-uf_check "system level: /etc/kbool/config is read, \$ProgramData/kbool/config is NOT when /etc has one (first found) [U30]" $?
+if uf_onwin; then
+    uf_win "$F/pd"; WPD=$UF_WIN
+    uf_run "export ProgramData='$WPD' PROGRAMDATA=\"\$FX/pd2\"; source \"\$FX/kbool.sh\"; kk.config defines; echo \"d=\$RESULT\""
+    [[ "$UF_OUT" == "d=ETCDEF" ]]
+    uf_check "system level: /etc/kbool/config is read, \$ProgramData/kbool/config is NOT when /etc has one (first found) [U30]" $?
+else uf_na "system level: /etc/kbool/config is read, \$ProgramData/kbool/config is NOT when /etc has one (first found) [U30]"
+fi
 
 rm -f "$F/etc/kbool/config"
-uf_run "export ProgramData='$WPD' PROGRAMDATA=\"\$FX/pd2\"; source \"\$FX/kbool.sh\"; kk.config defines; echo \"d=\$RESULT\""
-[[ "$UF_OUT" == "d=PDDEF" ]]
-uf_check "system level: no /etc/kbool/config -> \$ProgramData/kbool/config; \$PROGRAMDATA is never read [U30, C16]" $?
+if uf_onwin; then
+    uf_run "export ProgramData='$WPD' PROGRAMDATA=\"\$FX/pd2\"; source \"\$FX/kbool.sh\"; kk.config defines; echo \"d=\$RESULT\""
+    [[ "$UF_OUT" == "d=PDDEF" ]]
+    uf_check "system level: no /etc/kbool/config -> \$ProgramData/kbool/config; \$PROGRAMDATA is never read [U30, C16]" $?
+else uf_na "system level: no /etc/kbool/config -> \$ProgramData/kbool/config; \$PROGRAMDATA is never read [U30, C16]"
+fi
 
 uf_run "export PROGRAMDATA=\"\$FX/pd2\"; source \"\$FX/kbool.sh\"; kk.config defines; echo \"d=[\$RESULT] r=\$?\""
 [[ "$UF_OUT" == "d=[] r=1" ]]
@@ -200,18 +221,24 @@ uf_cfg "$F/home/.kbool/myproj/project.conf" 'unitpath = lib' 'defines = MYPROJ'
 uf_user "$F/home/.kbool/myproj/lib/pn.sh" pn 'PN_LOADS=1'
 uf_cfg "$F/w/.kbool/wproj/project.conf" 'unitpath = lib'
 uf_user "$F/w/.kbool/wproj/lib/wn.sh" wn 'WN_LOADS=1'
-uf_win "$F/w"; WUP=$UF_WIN
+uf_onwin && { uf_win "$F/w"; WUP=$UF_WIN; }
 uf_run 'source "$FX/kbool.sh"; kk.project myproj; echo "p=$?"; kk.uses pn; echo "u=$? L=$PN_LOADS"; kk.defined MYPROJ; echo "d=$?"'
 [[ "$UF_OUT" == "p=0"$'\n'"u=0 L=1"$'\n'"d=0" ]]
 uf_check "kk.project NAME -> ~/.kbool/NAME/project.conf [U8]" $?
 
-uf_run "export USERPROFILE='$WUP'; source \"\$FX/kbool.sh\"; kk.project wproj; echo \"p=\$?\"; kk.uses wn; echo \"u=\$? L=\$WN_LOADS\"; kk.config unitpath; echo \"\$RESULT\""
-[[ "$UF_OUT" == "p=0"$'\n'"u=0 L=1"$'\n'"C:/${F:3}/w/.kbool/wproj/lib" ]]
-uf_check "kk.project NAME: not under ~ -> \$USERPROFILE/.kbool/NAME/project.conf (C:\\ folder, relative paths join it) [U6, U29]" $?
+if uf_onwin; then
+    uf_run "export USERPROFILE='$WUP'; source \"\$FX/kbool.sh\"; kk.project wproj; echo \"p=\$?\"; kk.uses wn; echo \"u=\$? L=\$WN_LOADS\"; kk.config unitpath; echo \"\$RESULT\""
+    [[ "$UF_OUT" == "p=0"$'\n'"u=0 L=1"$'\n'"C:/${F:3}/w/.kbool/wproj/lib" ]]
+    uf_check "kk.project NAME: not under ~ -> \$USERPROFILE/.kbool/NAME/project.conf (C:\\ folder, relative paths join it) [U6, U29]" $?
+else uf_na "kk.project NAME: not under ~ -> \$USERPROFILE/.kbool/NAME/project.conf (C:\\ folder, relative paths join it) [U6, U29]"
+fi
 
-uf_run "export USERPROFILE='$WUP'; source \"\$FX/kbool.sh\"; kk.project nosuch; echo \"p=\$?\"; kk.project myproj; echo \"p2=\$?\""
-[[ "$UF_OUT" == *"nosuch"*"$F/home/.kbool/nosuch/project.conf"*"$WUP"*$'\n'"p=2"$'\n'"p2=0" ]]
-uf_check "kk.project NAME not found: rc 2 naming the places searched; nothing set, a retry works" $?
+if uf_onwin; then
+    uf_run "export USERPROFILE='$WUP'; source \"\$FX/kbool.sh\"; kk.project nosuch; echo \"p=\$?\"; kk.project myproj; echo \"p2=\$?\""
+    [[ "$UF_OUT" == *"nosuch"*"$F/home/.kbool/nosuch/project.conf"*"$WUP"*$'\n'"p=2"$'\n'"p2=0" ]]
+    uf_check "kk.project NAME not found: rc 2 naming the places searched; nothing set, a retry works" $?
+else uf_na "kk.project NAME not found: rc 2 naming the places searched; nothing set, a retry works"
+fi
 
 uf_run 'source "$FX/kbool.sh"; kk.project "$FX/p/none.conf"; echo "p=$?"; kk.project; echo "p0=$?"; kk.project a b; echo "p2=$?"; kk.project ..; echo "pdd=$?"; kk.project "$FX/p"; echo "pdir=$?"; echo "proj=[$__KK_PROJECT]"; source "$FX/show.sh"'
 [[ "$UF_OUT" == *"p=2"*"p0=2"*"p2=2"*"pdd=2"*"pdir=2"$'\n'"proj=[]"$'\n'"debug=:1 ckk=:1 up=:1 def=:1 vk=unset pp=" ]]
@@ -493,11 +520,14 @@ rm -f "$F/cwd/PWN"
 cfg_clean
 uf_cfg "$F/w/.kbool/config" 'defines = WINDEF'
 uf_cfg "$F/pd/kbool/config" 'defines = PDDEF'
-uf_win "$F/w"; WUP=$UF_WIN
-uf_win "$F/pd"; WPD=$UF_WIN
-uf_run "export USERPROFILE='$WUP\\' ProgramData='$WPD\\'; source \"\$FX/kbool.sh\"; kk.config defines; echo \"d=\${RESULT//\$'\\n'/,}\""
-[[ "$UF_OUT" == "d=WINDEF,PDDEF" ]]
-uf_check "USERPROFILE and ProgramData with a trailing backslash: both configs found [R10, C16]" $?
+if uf_onwin; then
+    uf_win "$F/w"; WUP=$UF_WIN
+    uf_win "$F/pd"; WPD=$UF_WIN
+    uf_run "export USERPROFILE='$WUP\\' ProgramData='$WPD\\'; source \"\$FX/kbool.sh\"; kk.config defines; echo \"d=\${RESULT//\$'\\n'/,}\""
+    [[ "$UF_OUT" == "d=WINDEF,PDDEF" ]]
+    uf_check "USERPROFILE and ProgramData with a trailing backslash: both configs found [R10, C16]" $?
+else uf_na "USERPROFILE and ProgramData with a trailing backslash: both configs found [R10, C16]"
+fi
 
 cfg_clean
 uf_cfg "$F/p/a/project.conf" 'defines = PROJ'
