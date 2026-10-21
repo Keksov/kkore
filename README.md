@@ -431,6 +431,7 @@ kk.config colour; echo "unknown key: rc=$?"      # => unknown key: rc=2
 * A unit runs inside `kk.uses` (and the boot inside a function): file-scope
   `local` / `declare` without `-g` would become the loader's locals — the unit
   lint (`kkore/tests/unit_lint.sh`) rejects them.
+* `kbool.sh` refuses (rc 2, a message on stderr) a shell that is not bash, bash in POSIX mode, and a bash older than `__KK_BASH_MIN` (5.2).
 
 ---
 
