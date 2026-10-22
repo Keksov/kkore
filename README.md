@@ -13,7 +13,7 @@ The entry document — quick start, header shapes, the configuration chain, how
 to run the tests — is the [kbool README](../README.md). This page is the
 reference of the loader's public functions (section 1), the rules they keep
 (2–4), the security notes (5) and the limitations (6). The design, with every
-decision and its reasons, is [kklass/USES_PLAN.md](../kklass/USES_PLAN.md);
+decision and its reasons, is [kklass/USES_PLAN.md](../kklass/docs/dev/USES_PLAN.md);
 the code comments of [`kuse.sh`](kuse.sh) are the fine print.
 
 | unit | defines | |
