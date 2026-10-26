@@ -324,7 +324,7 @@ kk.namespace kv; echo "kkore's: rc=$?"               # => kkore's: rc=2
 
 ## 4. Configuration file reference
 
-Levels and the merge rule: [kbool README, Configuration](../README.md#configuration).
+Levels and the merge rule: [kbool reference, Configuration](../docs/reference.md#configuration).
 The reader (`kk._cfg_read`) is fork-free and executes nothing:
 
 * UTF-8; a leading UTF-8 BOM is skipped; LF or CRLF (every CR is dropped). A
