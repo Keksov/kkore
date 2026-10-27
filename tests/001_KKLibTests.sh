@@ -172,7 +172,7 @@ fi
 
 # Test 13: Outputs text with newline
 kt_test_start "kl.writeln outputs with newline"
-line_count=$(kl.writeln "test" | wc -l)
+line_count=$(( $(kl.writeln "test" | wc -l) ))
 if kt_assert_equals "1" "$line_count" "Should output exactly one newline"; then
     kt_test_pass "kl.writeln outputs with newline"
 else
@@ -191,7 +191,7 @@ fi
 
 # Test 15: Handles empty string with newline
 kt_test_start "kl.writeln handles empty string"
-line_count=$(kl.writeln "" | wc -l)
+line_count=$(( $(kl.writeln "" | wc -l) ))
 if kt_assert_equals "1" "$line_count" "Should output newline for empty string"; then
     kt_test_pass "kl.writeln handles empty string"
 else

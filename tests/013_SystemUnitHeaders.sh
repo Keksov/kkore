@@ -124,7 +124,7 @@ if [[ "$n" == 0 ]]; then kt_test_pass "none"; else kt_test_fail "$n file-scope l
 # 4. P3 with headers: a system unit whose header fails makes kbool.sh fail
 H="$_KT_TMPDIR/hdr"
 rm -rf "$H"; cp -r "$GOOD" "$H"
-sed -i 's/^kk\.unit kcfg || return \$__kk_unit_rc$/kk.unit kcfgx || return $__kk_unit_rc/' "$H/kkore/kcfg.sh"
+sed 's/^kk\.unit kcfg || return \$__kk_unit_rc$/kk.unit kcfgx || return $__kk_unit_rc/' "$H/kkore/kcfg.sh" > "$H/kkore/kcfg.sh.kt" && mv "$H/kkore/kcfg.sh.kt" "$H/kkore/kcfg.sh"
 UF_FX="$H"
 uf_run 'source "$FX/kbool.sh"; r=$?; [[ ${__KK_UNITS[@]@a} == A* ]] && g=on || g=off; echo "r=$r guard=$g home=${KBOOL_HOME-unset}"'
 UF_FX="$GOOD"

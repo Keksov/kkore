@@ -92,7 +92,7 @@ fi
 kt_test_start "the checker: an example runs in an empty folder with an empty HOME, no KBOOL_* / BASH_ENV / exported functions from the caller, /etc/kbool hook missing [U5, U41]"
 printf '%s\n' '<!-- doctest -->' '```bash' \
     'echo "files=$(ls -A)"                                    # => files=example.sh' \
-    'echo "home=$(ls -A "$HOME" | wc -l) cfg=${KBOOL_CONFIG-unset} kh=${KBOOL_HOME-unset} be=${BASH_ENV-unset}"  # => home=0 cfg=unset kh=unset be=unset' \
+    'echo "home=$(( $(ls -A "$HOME" | wc -l) )) cfg=${KBOOL_CONFIG-unset} kh=${KBOOL_HOME-unset} be=${BASH_ENV-unset}"  # => home=0 cfg=unset kh=unset be=unset' \
     'declare -F kdoc_run >/dev/null && echo leaked || echo clean   # => clean' \
     '[[ -e $__KK_CFG_ETC ]] && echo etc || echo noetc          # => noetc' \
     '```' > "$_KT_TMPDIR/iso.md"
