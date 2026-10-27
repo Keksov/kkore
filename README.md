@@ -12,8 +12,8 @@ source /path/to/kbool/kbool.sh || exit
 The entry document — quick start, header shapes, the configuration chain, how
 to run the tests — is the [kbool README](../README.md). This page is the
 reference of the loader's public functions (section 1), the rules they keep
-(2–4), the security notes (5) and the limitations (6). The design, with every
-decision and its reasons, is [kklass/USES_PLAN.md](../kklass/docs/dev/USES_PLAN.md);
+(2–4), the security notes (5), the limitations (6) and the GNU tool resolver
+(7). The design, with every decision and its reasons, is [kklass/USES_PLAN.md](../kklass/docs/dev/USES_PLAN.md);
 the code comments of [`kuse.sh`](kuse.sh) are the fine print.
 
 | unit | defines | |
@@ -23,9 +23,11 @@ the code comments of [`kuse.sh`](kuse.sh) are the fine print.
 | `kerr` | the ERR trap and error reporting: `ke.setTrap`, `ke.onError`, `ke.setError`, `ke.hasError`, `ke.reportError`, `ke.enableErrorReport`, `ke.errorsReportingOff`, `ke.exitOnErrorOn/Off` | the trap is set by an explicit `ke.setTrap` (units take no arguments) |
 | `kvar` | `kv.new` (unique names), the frame stack `kv.framePush/Pop/Current/Instance/Class`, `kv.set/get/free` | used by kklass's dispatch |
 | `kcfg` | a key/value store: `kc.set/get/exists/delete/keys/clear`, `kc.setTrue/setFalse/isTrue/isFalse`, `kc.alias` | not the kbool configuration (that is `kk.config`) |
+| `ktool` | the GNU tool resolver: `ktool.gnu`, `ktool.lastError` | **not** a system unit: loaded on demand (`kk.uses ktool`), section 7 |
 
 Declared function namespaces of kkore (no class or instance may take them):
-`kk kl ke kv kc` and the unit names `kuse klib kerr kvar kcfg`.
+`kk kl ke kv kc` and the unit names `kuse klib kerr kvar kcfg`; `ktool` once
+it is loaded.
 
 ---
 
@@ -396,7 +398,9 @@ kk.config colour; echo "unknown key: rc=$?"      # => unknown key: rc=2
   general guarantee: for a name not loaded yet the calling file's folder comes
   first (first match, silently) — a script whose folder holds a headered
   `kklass.sh` loads it on its first `kk.uses kklass`. Keep unit names unique on
-  your search path.
+  your search path. The GNU tool resolver (section 7) searches only absolute
+  PATH folders: with `PATH=/usr/bin:` in an untrusted folder, bash would run
+  `./gsed`; `ktool.gnu sed` never answers it.
 * **Config files are data**: nothing is evaluated or expanded; size, line
   length and encoding are capped (section 4).
 * **What is trusted**: `KBOOL_HOME` in a shell that has no kbool yet — a user
@@ -435,12 +439,90 @@ kk.config colour; echo "unknown key: rc=$?"      # => unknown key: rc=2
 
 ---
 
-## 7. Tests
+## 7. The GNU tool resolver (`ktool.sh`)
+
+The core is tool-free; the kcl wrapper units (TSed, TAwk, TGrep, TFind, THead,
+TTail) drive the **GNU** tool and find it by name (owner decision OG1 = A,
+launch L3.3). `ktool` is the one place that knows how. It is not loaded by
+`kbool.sh`; a unit that needs it says `kk.uses ktool`.
+
+    ktool.gnu FAMILY     RESULT = absolute path of a GNU FAMILY; rc 0 / 1 none / 2 unknown FAMILY
+    ktool.lastError      RESULT = why the last failing ktool.gnu failed ('' = none yet)
+
+| FAMILY | g-name | GNU identity in the first `--version` line | FreeBSD | macOS | Alpine | Debian, Ubuntu, Fedora |
+|---|---|---|---|---|---|---|
+| `sed` | `gsed` | `(GNU sed) `, or at the start `GNU sed version ` (4.2.x) | `pkg install gsed` | `brew install gnu-sed` | `apk add sed` | default |
+| `awk` | `gawk` | `GNU Awk ` | `pkg install gawk` | `brew install gawk` | `apk add gawk` | `gawk` (Debian's default awk is mawk) |
+| `grep` | `ggrep` | `(GNU grep) ` | `pkg install gnugrep` | `brew install grep` | `apk add grep` | default |
+| `find` | `gfind` | `find (GNU findutils) ` | `pkg install findutils` | `brew install findutils` | `apk add findutils` | default |
+| `head` | `ghead` | `head (GNU coreutils) ` | `pkg install coreutils` | `brew install coreutils` | `apk add coreutils` | default |
+| `tail` | `gtail` | `tail (GNU coreutils) ` | `pkg install coreutils` | `brew install coreutils` | `apk add coreutils` | default |
+
+Git for Windows and MSYS2 ship the GNU tools in `/usr/bin`. uutils coreutils
+(`head (uutils coreutils) 0.2.2`, the default on Ubuntu 25.10+) is refused for
+now — the hint then says so and names Ubuntu's `coreutils-from-gnu` package;
+accepting it is the one commented line under the tables in `ktool.sh`. On musl
+the hint names `apk add` only where `/etc/alpine-release` exists.
+
+**Search order.** (1) The override `KCL_GNU_<FAMILY>` (`KCL_GNU_SED`,
+`KCL_GNU_AWK`, …) when set and non-empty — then it is the only candidate: a
+value with a `/` is a path (relative to `$PWD`) that must be an executable
+file, a bare name is searched on PATH, and a wrong override is refused, never
+skipped. (2) The g-name in every PATH folder, in PATH order. (3) The plain name
+in every PATH folder, in PATH order. Only **absolute** PATH folders are
+searched — an empty entry, `.` and relative folders never (section 5); each
+folder once, trailing slashes dropped. A candidate counts only when its banner
+contains the identity of the table: the banner is the first non-blank line of
+its `--version` stdout, leading blanks dropped (run with `LC_ALL=C`, stdin from
+`/dev/null`), or the same of its stderr when stdout is all blank — so a warning
+on stderr does not hide GNU grep. Only the first 4096 bytes of each stream are
+looked at; any amount of output is split in linear time, and NUL bytes are
+dropped silently. A candidate that never exits (or leaves a child holding its
+stdout) blocks the probe: there is no timeout, by design. busybox (`This is not GNU sed version 4.0`) and BSD answers (`sed: illegal
+option -- -`, `grep (BSD grep, GNU compatible) 2.6.0-FreeBSD`, `awk version
+20250804`) are refused.
+
+**Cost and caching.** One `--version` run per candidate path per process: two
+shell forks (an outer `$( )` subshell and an inner one that `exec`s the tool —
+measured, tool ← subshell ← caller — so stdout and stderr come back apart);
+the family's answer — a failure too — is cached under the override's value and
+`$PATH` (and `$PWD` for a relative override), so a repeated call is a few
+string compares (no fork, no PATH walk) until one of them changes. The caches are plain globals: a `$( … )` child of a
+warm shell forks nothing, but what a child resolves dies with it — call
+`ktool.gnu` once in the shell that will use it (RESULT mode), not only inside
+`$( )`.
+
+**Failure.** rc 1, RESULT '', nothing printed; `ktool.lastError` names
+everything that was tried and how to get the tool on this platform (`$OSTYPE`):
+
+```bash
+kk.uses ktool
+if ktool.gnu sed; then
+    sed_bin=$RESULT                     # e.g. /usr/local/bin/gsed on FreeBSD
+else
+    ktool.lastError; echo "$RESULT" >&2
+fi
+# FreeBSD without gsed:
+#   no GNU sed: gsed not on PATH; /usr/bin/sed is not GNU sed (--version: "sed: illegal option -- -"); FreeBSD: pkg install gsed
+```
+
+An unknown FAMILY is rc 2 (`ktool.gnu: unknown tool family 'x' (known: sed awk
+grep find head tail)`), and so is a call in a shell whose ktool tables are not
+its own (an `export -f` child). Every name, path and banner in a reason passes
+through one sanitiser (control characters as `?`). `set -u` / `set -e` clean;
+globals `__KTOOL_*` (never taken from the environment: declared fresh at load
+unless they already are this shell's associative arrays), locals `__ktool_*`.
+A new family is one row in each table at the top of `ktool.sh`.
+
+---
+
+## 8. Tests
 
 `bash kkore/tests/tests.sh` (threaded; `--mode single` sequential). The loader:
 004 (frame / use / error trap), 009 (units and uses), 010 (kbool.sh), 011
 (config and kk.project), 012 (declared namespaces), 013 (system unit headers +
 lint), 014 (failed dependencies, lookup without a cwd hijack), 015 (the runnable
-examples of this page and of the kbool README). Shared helpers, not test files:
+examples of this page and of the kbool README). The GNU tool resolver: 017
+(fake tools on a private PATH). Shared helpers, not test files:
 `unit_fixture.sh` (a private kbool tree + a hermetic `uf_run`), `unit_lint.sh`,
 `doc_examples.sh` (the `<!-- doctest -->` runner).
