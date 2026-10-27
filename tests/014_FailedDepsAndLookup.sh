@@ -85,7 +85,10 @@ uf_run 'cd "$FX/hostile" && printf "%s\n" "source \"\$FX/kbool.sh\"" "kk.uses a;
 [[ "$UF_OUT" == "r=0 A=1 hij=0" ]]
 uf_check "U43: the same from a pipe" $?
 
-uf_run 'cd "$FX/hostile"; "$BASH" -i -c '\''source "$FX/kbool.sh"; kk.uses a; echo "r=$? A=${A_LOADS:-0} hij=${HIJ_a:-0}"'\'' 2>&1 | grep -v -i -E "job control|terminal process group|^bash: "'
+# (bash -i's stderr goes to a FILE, not a pipe: without a terminal bash -i takes
+# fd 2 as its terminal, and on FreeBSD tcgetpgrp() on a pipe answers 0 instead of
+# failing, so bash -i sends itself SIGTTIN and stays stopped — launch L3.5)
+uf_run 'cd "$FX/hostile"; o=$("$BASH" -i -c '\''source "$FX/kbool.sh"; kk.uses a; echo "r=$? A=${A_LOADS:-0} hij=${HIJ_a:-0}"'\'' 2>"$FX/ierr.txt"); grep -v -i -E "job control|terminal process group|^bash: " "$FX/ierr.txt"; printf "%s\n" "$o"'
 [[ "$UF_OUT" == *"r=0 A=0 hij=1" ]]
 uf_check "U43: at an interactive prompt (\$- has i) the cwd IS the first lookup place (U14 unchanged there)" $?
 
