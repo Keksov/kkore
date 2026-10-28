@@ -455,14 +455,19 @@ launch L3.3). `ktool` is the one place that knows how. It is not loaded by
 | `awk` | `gawk` | `GNU Awk ` | `pkg install gawk` | `brew install gawk` | `apk add gawk` | `gawk` (Debian's default awk is mawk) |
 | `grep` | `ggrep` | `(GNU grep) ` | `pkg install gnugrep` | `brew install grep` | `apk add grep` | default |
 | `find` | `gfind` | `find (GNU findutils) ` | `pkg install findutils` | `brew install findutils` | `apk add findutils` | default |
-| `head` | `ghead` | `head (GNU coreutils) ` | `pkg install coreutils` | `brew install coreutils` | `apk add coreutils` | default |
-| `tail` | `gtail` | `tail (GNU coreutils) ` | `pkg install coreutils` | `brew install coreutils` | `apk add coreutils` | default |
+| `head` | `ghead` | `head (GNU coreutils) `, or uutils coreutils ≥ 0.2.2 (below) | `pkg install coreutils` | `brew install coreutils` | `apk add coreutils` | default |
+| `tail` | `gtail` | `tail (GNU coreutils) `, or uutils coreutils ≥ 0.2.2 (below) | `pkg install coreutils` | `brew install coreutils` | `apk add coreutils` | default |
 
 Git for Windows and MSYS2 ship the GNU tools in `/usr/bin`. uutils coreutils
-(`head (uutils coreutils) 0.2.2`, the default on Ubuntu 25.10+) is refused for
-now — the hint then says so and names Ubuntu's `coreutils-from-gnu` package;
-accepting it is the one commented line under the tables in `ktool.sh`. On musl
-the hint names `apk add` only where `/etc/alpine-release` exists.
+(the default on Ubuntu 25.10+) is accepted for `head` and `tail` only, from
+version 0.2.2 (owner decision OG8: 0.2.2 and 0.12.0 pass THead/TTail; older
+was not measured): the banner is `[path]head (uutils coreutils) X.Y.Z…` (the family
+must be named: a uutils `head` is no `tail`), the version is the three
+numbers after the first such marker (a suffix such as `-rc1` is ignored, so a
+pre-release of the floor passes), compared numerically against the floor
+`__KTOOL_UU_MIN`. An older or unreadable version is refused; the hint
+names the version (or says it is unknown), the floor and Ubuntu's `coreutils-from-gnu` package. On musl the
+hint names `apk add` only where `/etc/alpine-release` exists.
 
 **Search order.** (1) The override `KCL_GNU_<FAMILY>` (`KCL_GNU_SED`,
 `KCL_GNU_AWK`, …) when set and non-empty — then it is the only candidate: a

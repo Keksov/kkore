@@ -339,18 +339,100 @@ ctl="$(timeout -k 2 30 "$D/sed" --version <<< LEAK 2>&1)"
 got="$(timeout -k 2 30 "$BASH" -c 'source "$1/kbool.sh" || exit 9; kk.uses ktool || exit 8; PATH=$2; ktool.gnu sed; echo "rc=$? $RESULT"' _ "$KBOOL_ROOT" "$D" <<< LEAK 2>&1)"
 check "$ctl|$got" "stdin: LEAK|rc=0 $D/sed"
 
-D=$TMPD/r8; mkfake "$D" head out 'head (uutils coreutils) 0.2.2'; mkfake "$D" tail out 'tail (uutils coreutils) 0.2.2'
-kt_test_start "uutils coreutils is refused, and the hint says so and names the Ubuntu switch"
+D=$TMPD/r8; mkfake "$D" head out 'head (uutils coreutils) 0.2.1'
+kt_test_start "uutils coreutils older than 0.2.2 is refused; the hint names its version and the floor and the Ubuntu switch"
 got="$(PATH=$D; OSTYPE=linux-gnu; probe head)"
-check "$got" "rc=1||no GNU head: ghead not on PATH; $D/head is not GNU head (--version: \"head (uutils coreutils) 0.2.2\"); uutils coreutils is not accepted (only GNU coreutils is): install GNU coreutils (Ubuntu: the coreutils-from-gnu package)"
+check "$got" "rc=1||no GNU head: ghead not on PATH; $D/head is not GNU head (--version: \"head (uutils coreutils) 0.2.1\"); uutils coreutils 0.2.1 is older than 0.2.2, the oldest one kbool accepts: update it, or install GNU coreutils (Ubuntu: the coreutils-from-gnu package)"
 
-kt_test_start "… and the commented one-liner in ktool.sh accepts uutils for head and tail"
-UU=""
-while IFS= read -r l; do
-    if [[ $l == "# __KTOOL_ID[head]+="* ]]; then UU=${l#"# "}; fi
-done < "$SCRIPT_DIR/../ktool.sh"
-got="$(PATH=$D; eval "$UU"; probe head; printf ' '; probe tail)"
-check "[${UU:0:20}] $got" "[__KTOOL_ID[head]+='|] rc=0|$D/head| rc=0|$D/tail|"
+# ---------------------------------------------------------------------------
+kt_test_section "017: uutils coreutils head/tail from 0.2.2 (owner decision OG8)"
+
+UU_OLD="update it, or install GNU coreutils (Ubuntu: the coreutils-from-gnu package)"
+
+kt_test_start "accepted for head/tail: 0.12.0, 0.2.2 with a full-path prefix, tail 0.2.2, 1.0.0, 0.10.0 (numeric: 0.10 > 0.2), 0.2.2-rc1"
+got=""
+n=0
+for b in 'head (uutils coreutils) 0.12.0' "/home/kb/uu/bin/head (uutils coreutils) 0.2.2" 'head (uutils coreutils) 1.0.0' \
+         'head (uutils coreutils) 0.10.0' 'head (uutils coreutils) 0.2.2-rc1'; do
+    n=$(( n + 1 )); D=$TMPD/u$n; mkfake "$D" head out "$b"
+    got+="$(PATH=$D; probe head)"$'\n'
+done
+D=$TMPD/ut; mkfake "$D" tail out 'tail (uutils coreutils) 0.2.2'
+got+="$(PATH=$D; probe tail)"
+check "$got" "rc=0|$TMPD/u1/head|
+rc=0|$TMPD/u2/head|
+rc=0|$TMPD/u3/head|
+rc=0|$TMPD/u4/head|
+rc=0|$TMPD/u5/head|
+rc=0|$TMPD/ut/tail|"
+
+kt_test_start "refused with the older hint: 0.2.1 (tail), 0.1.9"
+D=$TMPD/uo1; mkfake "$D" tail out 'tail (uutils coreutils) 0.2.1'
+D2=$TMPD/uo2; mkfake "$D2" head out 'head (uutils coreutils) 0.1.9'
+got="$(PATH=$D; OSTYPE=linux-gnu; probe tail; printf '\n'; PATH=$D2; probe head)"
+check "$got" "rc=1||no GNU tail: gtail not on PATH; $D/tail is not GNU tail (--version: \"tail (uutils coreutils) 0.2.1\"); uutils coreutils 0.2.1 is older than 0.2.2, the oldest one kbool accepts: $UU_OLD
+rc=1||no GNU head: ghead not on PATH; $D2/head is not GNU head (--version: \"head (uutils coreutils) 0.1.9\"); uutils coreutils 0.1.9 is older than 0.2.2, the oldest one kbool accepts: $UU_OLD"
+
+kt_test_start "refused with the garbled hint: no version, 'v0.2.2', '0.2', a 7-digit component"
+got=""
+n=0
+for b in 'head (uutils coreutils)' 'head (uutils coreutils) v0.2.2' 'head (uutils coreutils) 0.2' 'head (uutils coreutils) 0.2.1234567'; do
+    n=$(( n + 1 )); D=$TMPD/ug$n; mkfake "$D" head out "$b"
+    got+="$(PATH=$D; OSTYPE=linux-gnu; probe head)"$'\n'
+done
+H="uutils coreutils of an unknown version is not accepted (0.2.2 or newer is): $UU_OLD"
+check "$got" "rc=1||no GNU head: ghead not on PATH; $TMPD/ug1/head is not GNU head (--version: \"head (uutils coreutils)\"); $H
+rc=1||no GNU head: ghead not on PATH; $TMPD/ug2/head is not GNU head (--version: \"head (uutils coreutils) v0.2.2\"); $H
+rc=1||no GNU head: ghead not on PATH; $TMPD/ug3/head is not GNU head (--version: \"head (uutils coreutils) 0.2\"); $H
+rc=1||no GNU head: ghead not on PATH; $TMPD/ug4/head is not GNU head (--version: \"head (uutils coreutils) 0.2.1234567\"); $H
+"
+
+D1=$TMPD/up1; D2=$TMPD/up2; mkfake "$D1" head out 'head (uutils coreutils) 0.2.1'; mkfake "$D2" head out 'head (GNU coreutils) 9.9'
+kt_test_start "an old uutils head earlier on PATH, a GNU head later -> the GNU one (each probed once)"
+got="$(PATH=$D1:$D2; probe head; printf '|1=%s 2=%s' "$(calls "$D1" head)" "$(calls "$D2" head)")"
+check "$got" "rc=0|$D2/head||1=1 2=1"
+
+kt_test_start "KCL_GNU_HEAD naming an old uutils head is refused in the override form with the older hint"
+got="$(PATH=$D2; OSTYPE=linux-gnu; KCL_GNU_HEAD=$D1/head; probe head)"
+check "$got" "rc=1||no GNU head: KCL_GNU_HEAD='$D1/head': $D1/head is not GNU head (--version: \"head (uutils coreutils) 0.2.1\"); uutils coreutils 0.2.1 is older than 0.2.2, the oldest one kbool accepts: $UU_OLD"
+
+D=$TMPD/us; mkfake "$D" sed out 'sed (uutils coreutils) 0.12.0'
+kt_test_start "a uutils coreutils banner for sed is refused with the ordinary sed hint (uutils is accepted for head/tail only)"
+got="$(PATH=$D; OSTYPE=linux-gnu; probe sed)"
+check "$got" "rc=1||no GNU sed: gsed not on PATH; $D/sed is not GNU sed (--version: \"sed (uutils coreutils) 0.12.0\"); Debian/Ubuntu: apt install sed; Fedora: dnf install sed"
+
+D=$TMPD/uh; mkfake "$D" head out 'head (uutils coreutils) 0.12.0'
+kt_test_start "KCL_GNU_TAIL naming a uutils HEAD is refused with the ordinary tail hint (the banner must name the family)"
+got="$(PATH=/nonexistent; OSTYPE=linux-gnu; KCL_GNU_TAIL=$D/head; probe tail)"
+check "$got" "rc=1||no GNU tail: KCL_GNU_TAIL='$D/head': $D/head is not GNU tail (--version: \"head (uutils coreutils) 0.12.0\"); Debian/Ubuntu: apt install coreutils; Fedora: dnf install coreutils"
+
+kt_test_start "KCL_GNU_HEAD naming a uutils head >= 0.2.2 is accepted (the override path)"
+got="$(PATH=/nonexistent; KCL_GNU_HEAD=$D/head; probe head)"
+check "$got" "rc=0|$D/head|"
+
+kt_test_start "leading zeros compare numerically (00.2.2 accepted; 0.02.1 refused, the hint keeps it as written); 999999.0.0 accepted; the FIRST marker decides"
+got=""
+n=0
+for b in 'head (uutils coreutils) 00.2.2' 'head (uutils coreutils) 999999.0.0' 'head (uutils coreutils) 0.02.1'          'x head (uutils coreutils) 0.1.0 head (uutils coreutils) 0.12.0'; do
+    n=$(( n + 1 )); D=$TMPD/uz$n; mkfake "$D" head out "$b"
+    got+="$(PATH=$D; OSTYPE=linux-gnu; probe head)"$'
+'
+done
+check "$got" "rc=0|$TMPD/uz1/head|
+rc=0|$TMPD/uz2/head|
+rc=1||no GNU head: ghead not on PATH; $TMPD/uz3/head is not GNU head (--version: \"head (uutils coreutils) 0.02.1\"); uutils coreutils 0.02.1 is older than 0.2.2, the oldest one kbool accepts: $UU_OLD
+rc=1||no GNU head: ghead not on PATH; $TMPD/uz4/head is not GNU head (--version: \"x head (uutils coreutils) 0.1.0 head (uutils coreutils) 0.12.0\"); uutils coreutils 0.1.0 is older than 0.2.2, the oldest one kbool accepts: $UU_OLD
+"
+
+kt_test_start "a broken floor refuses every uutils (never accepts), silently"
+got="$( { PATH=$TMPD/uz1; __KTOOL_UU_MIN=''; probe head; } 2>&1 )"
+case $got in rc=1\|\|*) got=refused ;; esac
+check "$got" "refused"
+
+D=$TMPD/uc; mkfake "$D" head out 'head (uutils coreutils) 0.2.2'
+kt_test_start "an accepted uutils head is cached: a second call forks nothing"
+got="$(PATH=$D; probe head; probe head; printf '|n=%s' "$(calls "$D" head)")"
+check "$got" "rc=0|$D/head|rc=0|$D/head||n=1"
 
 D=$TMPD/r9; mkfake "$D" sed out 'GNU sed version 4.2.2'
 kt_test_start "old GNU sed: a banner that STARTS with 'GNU sed version ' (4.2.x) is GNU (busybox's 'This is not GNU sed version 4.0' is not, see above)"

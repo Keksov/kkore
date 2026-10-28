@@ -7,6 +7,7 @@ kk.unit ktool || return $__kk_unit_rc
 # system path $KBOOL_HOME/kkore finds it).
 #
 #   ktool.gnu FAMILY     RESULT = the absolute path of a GNU build of FAMILY
+#                        (or, for head/tail, of an accepted uutils coreutils)
 #                        rc 0 found; rc 1 none (RESULT=''); rc 2 unknown FAMILY
 #                        (or ktool is not loaded in this shell)
 #   ktool.lastError      RESULT = why the last failing ktool.gnu failed
@@ -26,11 +27,12 @@ kk.unit ktool || return $__kk_unit_rc
 # untrusted cwd for `PATH=/usr/bin:`, this resolver never answers it). Folders
 # are compared without trailing slashes and each is searched once.
 #
-# A candidate is accepted only when its `--version` banner carries the
-# family's GNU identity (__KTOOL_ID). The banner is the first non-blank line of
-# the tool's STDOUT (leading blanks dropped); only when stdout is all blank,
-# the same of its stderr (a GNU grep that warns about GREP_OPTIONS on stderr
-# first is still GNU grep).
+# A candidate is accepted when its `--version` banner carries the family's
+# GNU identity (__KTOOL_ID) or, for head and tail only, is uutils coreutils of
+# version __KTOOL_UU_MIN or newer (ktool._uu). The banner is the first
+# non-blank line of the tool's STDOUT (leading blanks dropped); only when
+# stdout is all blank, the same of its stderr (a GNU grep that warns about
+# GREP_OPTIONS on stderr first is still GNU grep).
 # Measured banners (launch L3.3): `sed (GNU sed) 4.9` — `/usr/bin/sed (GNU
 # sed) 4.9` when run by its path on msys, `gsed (GNU sed) 4.10` on FreeBSD;
 # `GNU sed version 4.2.2` (sed 4.2.x: RHEL/CentOS 7, SLES 12); `GNU Awk 5.4.1,
@@ -38,9 +40,11 @@ kk.unit ktool || return $__kk_unit_rc
 # findutils) 4.11.0` (also as gfind); `head (GNU coreutils) 9.9` (also as
 # ghead). Refused: busybox (`This is not GNU sed version 4.0`, `awk:
 # unrecognized option: -`), BSD (`sed: illegal option -- -`, `grep (BSD grep,
-# GNU compatible) 2.6.0`, `awk version 20250804`), uutils coreutils (`head
-# (uutils coreutils) 0.2.2`, Ubuntu 25.10+; owner decision pending — the hint
-# says so, and accepting it is one commented line below the tables).
+# GNU compatible) 2.6.0`, `awk version 20250804`). uutils coreutils (Ubuntu
+# 25.10+: `/home/kb/uu/bin/head (uutils coreutils) 0.2.2` by path, `head
+# (uutils coreutils) 0.12.0`) is accepted for head and tail from 0.2.2 (owner
+# decision OG8, 2026-10-28: both versions pass THead/TTail on kb-ubuntu; older
+# was not measured), refused for every other family.
 #
 # Cost. One run of each candidate per process (its banner is cached in
 # __KTOOL_BANNER; a cold probe costs two shell forks — the second execs the
@@ -83,7 +87,7 @@ ktool._own() {
 #              banner; a fragment starting with `^` must START the banner
 # __KTOOL_PKG  the package names: FreeBSD pkg | macOS brew | apk/apt/dnf
 #              (absent: the hint only says `install GNU FAMILY`)
-unset -v __KTOOL_FAMS __KTOOL_ENV __KTOOL_GN __KTOOL_ID __KTOOL_PKG
+unset -v __KTOOL_FAMS __KTOOL_ENV __KTOOL_GN __KTOOL_ID __KTOOL_PKG __KTOOL_UU_MIN
 declare -ga __KTOOL_FAMS=( sed awk grep find head tail )
 declare -gA __KTOOL_ENV=(
     [sed]=KCL_GNU_SED  [awk]=KCL_GNU_AWK  [grep]=KCL_GNU_GREP
@@ -95,8 +99,12 @@ declare -gA __KTOOL_ID=(
     [grep]='(GNU grep) '               [find]='find (GNU findutils) '
     [head]='head (GNU coreutils) '     [tail]='tail (GNU coreutils) '
 )
-# uutils coreutils (Ubuntu 25.10+) is REFUSED until the owner decides; to accept it, uncomment:
-# __KTOOL_ID[head]+='|head (uutils coreutils) '; __KTOOL_ID[tail]+='|tail (uutils coreutils) '
+# __KTOOL_UU_MIN the oldest uutils coreutils accepted for head and tail (owner
+#                decision OG8, ledger pending_owner_decisions.OG8: 0.2.2 and
+#                0.12.0 measured; one floor for both families, so one global).
+#                A load-time constant: answers are cached by override + PATH
+#                only. A floor that is not X.Y.Z refuses every uutils.
+declare -g __KTOOL_UU_MIN=0.2.2
 declare -gA __KTOOL_PKG=(
     [sed]='gsed|gnu-sed|sed'           [awk]='gawk|gawk|gawk'
     [grep]='gnugrep|grep|grep'         [find]='findutils|findutils|findutils'
@@ -176,9 +184,58 @@ ktool._banner() {
     __KTOOL_BANNER[$__ktool_p]=$__ktool_s
 }
 
+# ktool._uu BANNER — rc 0 when BANNER is the caller's family (__ktool_f) of
+# uutils coreutils, version __KTOOL_UU_MIN or newer. The caller's __ktool_uu =
+# the version (X.Y.Z), or `?` when it is garbled (on rc 0 the caller resets
+# it). The version is what follows the FIRST `FAMILY (uutils coreutils) ` (a
+# path may precede FAMILY): three dot-separated components of 1 to 6 ASCII
+# digits each, whatever follows the third (`-rc1`, text) ignored — so a
+# pre-release of the floor passes; anything else (`v0.2.2`, `0.2`, no version,
+# a 7-digit component) is garbled. Compared per component; a floor that is not
+# X.Y.Z refuses.
+ktool._uu() {
+    local __ktool_r __ktool_v='' __ktool_d __ktool_i __ktool_m=$__KTOOL_UU_MIN __ktool_n
+    __ktool_uu='?'
+    if [[ $1 != *"$__ktool_f (uutils coreutils) "* ]]; then
+        return 1
+    fi
+    __ktool_r=${1#*"$__ktool_f (uutils coreutils) "}
+    for __ktool_i in 1 2 3; do
+        __ktool_d=${__ktool_r%%[!0123456789]*}
+        __ktool_r=${__ktool_r:${#__ktool_d}}
+        if [[ ${#__ktool_d} -lt 1 || ${#__ktool_d} -gt 6 ]]; then
+            return 1
+        fi
+        if [[ $__ktool_i != 3 ]]; then
+            if [[ $__ktool_r != .* ]]; then
+                return 1
+            fi
+            __ktool_r=${__ktool_r#.}
+        fi
+        __ktool_v+=${__ktool_v:+.}$__ktool_d
+    done
+    __ktool_uu=$__ktool_v
+    if [[ ! $__ktool_m =~ ^[0123456789]{1,6}\.[0123456789]{1,6}\.[0123456789]{1,6}$ ]]; then
+        return 1                            # a broken floor: refuse, never accept
+    fi
+    __ktool_r=$__ktool_v.
+    __ktool_m+=.
+    for __ktool_i in 1 2 3; do              # the first differing component decides
+        __ktool_d=${__ktool_r%%.*} __ktool_n=${__ktool_m%%.*}
+        __ktool_r=${__ktool_r#*.} __ktool_m=${__ktool_m#*.}
+        if [[ 10#$__ktool_d -gt 10#$__ktool_n ]]; then
+            return 0
+        elif [[ 10#$__ktool_d -lt 10#$__ktool_n ]]; then
+            return 1
+        fi
+    done
+    return 0
+}
+
 # ktool._try PATH — rc 0 when PATH is a GNU build of the caller's family
-# (__ktool_f), else rc 1 with the reason appended to the caller's __ktool_why
-# (and the caller's __ktool_uu set when a head/tail banner is uutils coreutils').
+# (__ktool_f) or, for head and tail, an accepted uutils coreutils (ktool._uu);
+# else rc 1 with the reason appended to the caller's __ktool_why (and, after a
+# refused uutils coreutils head/tail, the caller's __ktool_uu = its version or `?`).
 ktool._try() {
     local __ktool_p=$1 __ktool_b __ktool_l __ktool_a __ktool_s
     ktool._banner "$__ktool_p"
@@ -197,8 +254,11 @@ ktool._try() {
             return 0
         fi
     done
-    if [[ ( $__ktool_f == head || $__ktool_f == tail ) && $__ktool_b == *"(uutils coreutils)"* ]]; then
-        __ktool_uu=1
+    if [[ ( $__ktool_f == head || $__ktool_f == tail ) && $__ktool_b == *"$__ktool_f (uutils coreutils)"* ]]; then
+        if ktool._uu "$__ktool_b"; then
+            __ktool_uu=0
+            return 0
+        fi
     fi
     ktool._san "$__ktool_b" 80
     __ktool_b=$__ktool_s
@@ -242,11 +302,15 @@ ktool._walk() {
 
 # ktool._hint — the caller's __ktool_hint = how to get GNU FAMILY here
 # ($OSTYPE and /etc/alpine-release, no fork). After a uutils refusal (the
-# caller's __ktool_uu) it says that instead.
+# caller's __ktool_uu: its version, `?` when garbled) it says that instead.
 ktool._hint() {
-    local __ktool_pk=${__KTOOL_PKG[$__ktool_f]-} __ktool_pf __ktool_pb __ktool_pl
-    if [[ $__ktool_uu == 1 ]]; then
-        __ktool_hint="uutils coreutils is not accepted (only GNU coreutils is): install GNU coreutils (Ubuntu: the coreutils-from-gnu package)"
+    local __ktool_pk=${__KTOOL_PKG[$__ktool_f]-} __ktool_pf __ktool_pb __ktool_pl \
+          __ktool_up='update it, or install GNU coreutils (Ubuntu: the coreutils-from-gnu package)'
+    if [[ $__ktool_uu == '?' ]]; then
+        __ktool_hint="uutils coreutils of an unknown version is not accepted ($__KTOOL_UU_MIN or newer is): $__ktool_up"
+        return 0
+    elif [[ $__ktool_uu != 0 ]]; then
+        __ktool_hint="uutils coreutils $__ktool_uu is older than $__KTOOL_UU_MIN, the oldest one kbool accepts: $__ktool_up"
         return 0
     fi
     if [[ $__ktool_pk != *'|'*'|'* ]]; then
