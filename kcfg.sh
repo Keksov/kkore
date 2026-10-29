@@ -27,13 +27,15 @@ kc.get() {
 # Check if config key exists
 kc.exists() {
     local key="$1"
-    [[ -v __KLIB_CONFIG["$key"] ]]
+    # bash 5.1 expands a["$k"] twice in -v/unset (launch L4.3)
+    [[ -n $key && -n ${__KLIB_CONFIG[$key]+x} ]]
 }
 
 # Delete config value
 kc.delete() {
     local key="$1"
-    unset __KLIB_CONFIG["$key"]
+    # bash 5.1 expands a["$k"] twice in -v/unset (launch L4.3)
+    [[ -z $key ]] || unset '__KLIB_CONFIG[$key]'
 }
 
 # Get all config keys

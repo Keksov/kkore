@@ -1796,6 +1796,29 @@ else
 fi
 kv.framePop >/dev/null
 
+# ============================================================================
+# kv.free with names holding shell-special characters (launch L4.3: bash 5.1
+# expands a["$k"] twice in `unset`, so such a name was kept, and `@` or `*`
+# emptied the whole store). kv.* accepts any non-empty name (no identifier
+# check), so each name is set, freed, and a second variable must survive.
+# ============================================================================
+
+for kv_sk in 't"b' 'a]b' 'x$y' '@'; do
+    kt_test_start "kv.free of the variable named [$kv_sk] removes it and leaves another variable"
+    unset __KLIB_VARS; declare -gA __KLIB_VARS
+    kv.set "$kv_sk" "v1"
+    kv.set "other_var" "v2"
+    kv_a=${__KLIB_VARS[$kv_sk]+set}
+    kv.free "$kv_sk"
+    if [[ $kv_a == set && -z ${__KLIB_VARS[$kv_sk]+set} && ${#__KLIB_VARS[@]} -eq 1 && ${__KLIB_VARS[other_var]-} == v2 ]]; then
+        kt_test_pass "kv.free of [$kv_sk]"
+    else
+        kt_test_fail "kv.free of [$kv_sk]: set-before=[$kv_a] still-there=[${__KLIB_VARS[$kv_sk]+set}] size=${#__KLIB_VARS[@]} (want 1) other=[${__KLIB_VARS[other_var]-}]"
+    fi
+done
+unset kv_sk kv_a
+declare -gA __KLIB_VARS=()
+
 # Cleanup
 unset __KLIB_VARS
 unset __KLIB_FRAME_STACK

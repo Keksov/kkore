@@ -137,5 +137,6 @@ kv.free() {
         ke.reportError "variable name cannot be empty"
         return 1
     fi
-    unset __KLIB_VARS["$var_name"]
+    # bash 5.1 expands a["$k"] twice in -v/unset (launch L4.3)
+    unset '__KLIB_VARS[$var_name]'
 }

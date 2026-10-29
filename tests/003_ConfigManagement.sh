@@ -1101,6 +1101,29 @@ else
     kt_test_fail "Multi-function modification tracking failed (s1: $state1, s2: $state2, s3: $state3)"
 fi
 
+# ============================================================================
+# Keys with shell-special characters (launch L4.3: bash 5.1 expands a["$k"]
+# twice in `[[ -v ]]` and `unset`, so such keys were not found / not removed,
+# and `@` or `*` emptied the whole array)
+# ============================================================================
+
+for kc_sk in 't"b' 'a]b' 'x$y' '@'; do
+    kt_test_start "kc.set/kc.exists/kc.delete with the key [$kc_sk]: set -> exists rc 0 -> delete -> exists rc 1, a second key survives"
+    kc.clear
+    kc.set "$kc_sk" "v1"
+    kc.set "other_key" "v2"
+    kc.exists "$kc_sk"; kc_r1=$?
+    kc.delete "$kc_sk"
+    kc.exists "$kc_sk"; kc_r2=$?
+    kc.exists "other_key"; kc_r3=$?
+    if [[ $kc_r1 -eq 0 && $kc_r2 -eq 1 && $kc_r3 -eq 0 && ${#__KLIB_CONFIG[@]} -eq 1 && ${__KLIB_CONFIG[other_key]-} == v2 ]]; then
+        kt_test_pass "special key [$kc_sk] handled"
+    else
+        kt_test_fail "key [$kc_sk]: exists-after-set rc=$kc_r1 (want 0), exists-after-delete rc=$kc_r2 (want 1), other survives rc=$kc_r3 (want 0), size=${#__KLIB_CONFIG[@]} (want 1)"
+    fi
+done
+unset kc_sk kc_r1 kc_r2 kc_r3
+
 # Cleanup
 kc.clear
 unset __KLIB_CONFIG
