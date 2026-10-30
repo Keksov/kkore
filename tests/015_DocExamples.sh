@@ -114,6 +114,6 @@ export -fn kdoc_run
 
 # ---------------------------------------------------------------------------
 # 2. The documents
-kdoc_check_file "$KDOC_ROOT/README.md" "README.md" 1
+kdoc_check_file "$KDOC_ROOT/README.md" "README.md" 2
 kdoc_check_file "$KDOC_ROOT/docs/reference.md" "docs/reference.md" 8
 kdoc_check_file "$SCRIPT_DIR/../README.md" "kkore/README.md" 5
