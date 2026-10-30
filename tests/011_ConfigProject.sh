@@ -89,7 +89,8 @@ fi
 if uf_onwin; then
     uf_win "$F/c/4/kb.conf"
     uf_run "export KBOOL_CONFIG='$UF_WIN'; source \"\$FX/kbool.sh\"; kk.uses wv; echo \"u=\$? \$WV_LOADS\"; kk.config unitpath; echo \"\${RESULT//\$'\\n'/,}\""
-    [[ "$UF_OUT" == "u=0 1"$'\n'"$W4LIBS,C:/${F:3}/c/4/sub/lib2" ]]
+    uf_win "$F"; FW=${UF_WIN//\\//}
+    [[ "$UF_OUT" == "u=0 1"$'\n'"$W4LIBS,$FW/c/4/sub/lib2" ]]
     uf_check "KBOOL_CONFIG given as C:\\...: relative entries join its folder (separators folded to /), the unit is found" $?
 else uf_na "KBOOL_CONFIG given as C:\\...: relative entries join its folder (separators folded to /), the unit is found"
 fi
@@ -228,7 +229,8 @@ uf_check "kk.project NAME -> ~/.kbool/NAME/project.conf [U8]" $?
 
 if uf_onwin; then
     uf_run "export USERPROFILE='$WUP'; source \"\$FX/kbool.sh\"; kk.project wproj; echo \"p=\$?\"; kk.uses wn; echo \"u=\$? L=\$WN_LOADS\"; kk.config unitpath; echo \"\$RESULT\""
-    [[ "$UF_OUT" == "p=0"$'\n'"u=0 L=1"$'\n'"C:/${F:3}/w/.kbool/wproj/lib" ]]
+    uf_win "$F"; FW=${UF_WIN//\\//}
+    [[ "$UF_OUT" == "p=0"$'\n'"u=0 L=1"$'\n'"$FW/w/.kbool/wproj/lib" ]]
     uf_check "kk.project NAME: not under ~ -> \$USERPROFILE/.kbool/NAME/project.conf (C:\\ folder, relative paths join it) [U6, U29]" $?
 else uf_na "kk.project NAME: not under ~ -> \$USERPROFILE/.kbool/NAME/project.conf (C:\\ folder, relative paths join it) [U6, U29]"
 fi
