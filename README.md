@@ -1,5 +1,7 @@
 # kkore — the kbool system units
 
+> Part of [kbool](https://github.com/Keksov/kbool): installation, quick start and the other components are there.
+
 kkore is the bottom layer of kbool: the units `kbool.sh` always loads, in this
 order — `kuse` (the unit loader), `klib`, `kerr`, `kvar`, `kcfg`. They are
 registered as loaded **system units**: `kk.uses klib` is a no-op, they are never
@@ -10,16 +12,16 @@ source /path/to/kbool/kbool.sh || exit
 ```
 
 The entry document — quick start, header shapes, the configuration chain, how
-to run the tests — is the [kbool README](../README.md). This page is the
+to run the tests — is the [kbool README](https://github.com/Keksov/kbool/blob/main/README.md). This page is the
 reference of the loader's public functions (section 1), the rules they keep
 (2–4), the security notes (5), the limitations (6) and the GNU tool resolver
-(7). The design, with every decision and its reasons, is [kklass/USES_PLAN.md](../kklass/docs/dev/USES_PLAN.md);
+(7). The design, with every decision and its reasons, is [kklass/USES_PLAN.md](https://github.com/Keksov/kklass/blob/main/docs/dev/USES_PLAN.md);
 the code comments of [`kuse.sh`](kuse.sh) are the fine print.
 
 | unit | defines | |
 |---|---|---|
 | `kuse` | `kk.unit`, `kk.uses`, `kk.namespace`, `kk.project`, `kk.config`, `kk.defined` | section 1 |
-| `klib` | `kl.write`, `kl.writeln`, `kl.errln`, `kl.getTopCaller`; the guards `kk.isInt`, `kk.isNum`, `kk._outName`, `kk._is_ident`; `kk.debug`, `kk.warn` | contract: [kcl/README.md §1.2, §1.5, §1.7](../kcl/README.md#1-the-kcl-contract) |
+| `klib` | `kl.write`, `kl.writeln`, `kl.errln`, `kl.getTopCaller`; the guards `kk.isInt`, `kk.isNum`, `kk._outName`, `kk._is_ident`; `kk.debug`, `kk.warn` | contract: [kcl/README.md §1.2, §1.5, §1.7](https://github.com/Keksov/kcl/blob/main/README.md#1-the-kcl-contract) |
 | `kerr` | the ERR trap and error reporting: `ke.setTrap`, `ke.onError`, `ke.setError`, `ke.hasError`, `ke.reportError`, `ke.enableErrorReport`, `ke.errorsReportingOff`, `ke.exitOnErrorOn/Off` | the trap is set by an explicit `ke.setTrap` (units take no arguments) |
 | `kvar` | `kv.new` (unique names), the frame stack `kv.framePush/Pop/Current/Instance/Class`, `kv.set/get/free` | used by kklass's dispatch |
 | `kcfg` | a key/value store: `kc.set/get/exists/delete/keys/clear`, `kc.setTrue/setFalse/isTrue/isFalse`, `kc.alias` | not the kbool configuration (that is `kk.config`) |
@@ -33,7 +35,7 @@ it is loaded.
 
 ## 1. The loader API (`kuse.sh`)
 
-Conventions as in [kcl/README.md §1](../kcl/README.md#1-the-kcl-contract): a
+Conventions as in [kcl/README.md §1](https://github.com/Keksov/kcl/blob/main/README.md#1-the-kcl-contract): a
 value comes back in `RESULT`, a list into a caller array (`OUTVAR`); rc 0 /
 1 / 2. One difference: a **loader error is printed** (`kbool: error: …` on
 stderr, silenced only by `VERBOSE_KKLASS=quiet`) — it is a compile error of the
@@ -326,7 +328,7 @@ kk.namespace kv; echo "kkore's: rc=$?"               # => kkore's: rc=2
 
 ## 4. Configuration file reference
 
-Levels and the merge rule: [kbool reference, Configuration](../docs/reference.md#configuration).
+Levels and the merge rule: [kbool reference, Configuration](https://github.com/Keksov/kbool/blob/main/docs/reference.md#configuration).
 The reader (`kk._cfg_read`) is fork-free and executes nothing:
 
 * UTF-8; a leading UTF-8 BOM is skipped; LF or CRLF (every CR is dropped). A
