@@ -33,7 +33,7 @@ exit 7
 <!-- doctest -->
 ```bash
 source /path/to/kbool/kbool.sh
-echo "$KBOOL_HOME" | grep -c kbool    # => 1
+ls "$KBOOL_HOME/kbool.sh" | grep -c kbool.sh    # => 1
 printf '\n'                           # =>
 echo end                              # => end
 echo "warn" >&2                       # 2> war
