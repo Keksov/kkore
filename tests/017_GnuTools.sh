@@ -335,9 +335,12 @@ check "$got" "rc=0|$D/sed|"
 CAT=$(type -P cat)       # by path: the fakes run with PATH = their folder only
 D=$TMPD/r7; mkraw "$D" sed "x=\$(\"$CAT\"); if [ -z \"\$x\" ]; then echo 'sed (GNU sed) 4.9'; else echo \"stdin: \$x\"; fi"
 kt_test_start "the probe's stdin is /dev/null: a candidate that reads stdin sees nothing of the caller's (under timeout; the fake itself does see a stdin it is given)"
-ctl="$(timeout -k 2 30 "$D/sed" --version <<< LEAK 2>&1)"
-got="$(timeout -k 2 30 "$BASH" -c 'source "$1/kbool.sh" || exit 9; kk.uses ktool || exit 8; PATH=$2; ktool.gnu sed; echo "rc=$? $RESULT"' _ "$KBOOL_ROOT" "$D" <<< LEAK 2>&1)"
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
+ctl="$("$KT_TIMEOUT" -k 2 30 "$D/sed" --version <<< LEAK 2>&1)"
+got="$("$KT_TIMEOUT" -k 2 30 "$BASH" -c 'source "$1/kbool.sh" || exit 9; kk.uses ktool || exit 8; PATH=$2; ktool.gnu sed; echo "rc=$? $RESULT"' _ "$KBOOL_ROOT" "$D" <<< LEAK 2>&1)"
 check "$ctl|$got" "stdin: LEAK|rc=0 $D/sed"
+fi   # kt_need_timeout
 
 D=$TMPD/r8; mkfake "$D" head out 'head (uutils coreutils) 0.2.1'
 kt_test_start "uutils coreutils older than 0.2.2 is refused; the hint names its version and the floor and the Ubuntu switch"
@@ -476,7 +479,9 @@ BLANK=$TMPD/blank.txt; printf '%1048576s\n' '' > "$BLANK"    # 1 MiB of spaces
 D=$TMPD/r15; mkraw "$D" sed "echo 'sed (GNU sed) 4.9'; \"$CAT\" \"$BIG\"; \"$CAT\" \"$BIG\" >&2"
 D2=$TMPD/r15b; mkraw "$D2" grep "\"$CAT\" \"$BLANK\" \"$BLANK\"; echo 'grep (GNU grep) 3.11' >&2; \"$CAT\" \"$BIG\" >&2"
 kt_test_start "a banner followed by 1 MiB on stdout and 1 MiB on stderr, and 2 MiB of blank stdout before a stderr banner, resolve in well under a second each (linear split; under timeout)"
-got="$(timeout -k 2 120 "$BASH" -c 'source "$1/kbool.sh" || exit 9; kk.uses ktool || exit 8; PATH=$2:$3
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
+got="$("$KT_TIMEOUT" -k 2 120 "$BASH" -c 'source "$1/kbool.sh" || exit 9; kk.uses ktool || exit 8; PATH=$2:$3
        for f in sed grep; do s=$EPOCHREALTIME; ktool.gnu $f; rc=$?; e=$EPOCHREALTIME
            printf "%s rc=%s %s %s\n" $f $rc "$RESULT" $(( (${e//[.,]/} - ${s//[.,]/}) / 1000 )); done' _ "$KBOOL_ROOT" "$D" "$D2" 2>&1)"
 ms1=${got#sed rc=0 $D/sed }; ms1=${ms1%%$'\n'*}; ms2=${got##*$D2/grep }
@@ -486,6 +491,7 @@ if [[ "$got" == "sed rc=0 $D/sed "*$'\n'"grep rc=0 $D2/grep "* && $ms1 =~ ^[0-9]
 else
     kt_test_fail "[${got//$'\n'/ | }]"
 fi
+fi   # kt_need_timeout
 
 D=$TMPD/r16; mkraw "$D" sed "printf 'sed (GNU sed) 4.9\\000x\\n'; printf 'warn\\000y\\n' >&2"
 D2=$TMPD/r16b; mkraw "$D2" grep "printf 'grep (GNU grep) 3.11\\000\\n' >&2"

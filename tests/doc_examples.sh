@@ -84,7 +84,7 @@ kdoc_run() {
     cp "$1/$2.sh" "$d/w/example.sh"
     exp=$(<"$1/$2.out")         # $(<f) and $(cmd) both drop trailing newlines
     out=$(cd "$d/w" && env -i PATH="$PATH" HOME="$d/home" TMPDIR="$d/tmp" LANG=C.UTF-8 \
-              __KK_CFG_ETC="$d/etc/kbool" timeout 300 "$BASH" example.sh 2>"$d/stderr")
+              __KK_CFG_ETC="$d/etc/kbool" "$KT_TIMEOUT" 300 "$BASH" example.sh 2>"$d/stderr")
     rc=$?
     errt=$(<"$d/stderr")
     if (( rc != 0 )); then KDOC_WHY+="rc=$rc; "; fi
@@ -132,6 +132,7 @@ kdoc_check_file() {
         printf -v id '%03d' "$i"
         ln=$(<"$out/$id.line")
         kt_test_start "$title example $i (line $ln) runs as documented"
+        if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"; continue; fi
         if kdoc_run "$out" "$id"; then
             kt_test_pass "ok"
         else

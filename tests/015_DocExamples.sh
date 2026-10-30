@@ -72,6 +72,8 @@ a marked block that is not bash: not run
 ```
 MD
 kt_test_start "the checker: 6 marked bash blocks; a good one passes; a wrong stdout, an unexpected stderr, a missing stderr text, rc != 0 and an undocumented stderr line next to a documented one each fail; unmarked and non-bash blocks are not run [U5]"
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
 out="$_KT_TMPDIR/sample"
 rm -rf "$out"
 if kdoc_extract "$SAMPLE" "$out"; then n=$RESULT; else n="extract-rc-$?"; fi
@@ -88,8 +90,11 @@ if [[ $n == 6 && $verdict == PFFFFF \
 else
     kt_test_fail "n=$n verdict=$verdict why=$why"
 fi
+fi   # kt_need_timeout
 
 kt_test_start "the checker: an example runs in an empty folder with an empty HOME, no KBOOL_* / BASH_ENV / exported functions from the caller, /etc/kbool hook missing [U5, U41]"
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
 printf '%s\n' '<!-- doctest -->' '```bash' \
     'echo "files=$(ls -A)"                                    # => files=example.sh' \
     'echo "home=$(( $(ls -A "$HOME" | wc -l) )) cfg=${KBOOL_CONFIG-unset} kh=${KBOOL_HOME-unset} be=${BASH_ENV-unset}"  # => home=0 cfg=unset kh=unset be=unset' \
@@ -104,6 +109,7 @@ if KBOOL_CONFIG=/nonexistent KBOOL_HOME=/elsewhere BASH_ENV=/nonexistent kdoc_ex
 else
     kt_test_fail "$KDOC_WHY"
 fi
+fi   # kt_need_timeout
 export -fn kdoc_run
 
 # ---------------------------------------------------------------------------
