@@ -1,15 +1,13 @@
 # Changelog — kkore
 
-> Draft (launch L6.7): reviewed before the first release (L8).
-
 kkore holds the system units of kbool: the unit loader (`kk.unit`, `kk.uses`,
 `kk.project`, `kk.config`, `kk.defined`, `kk.namespace`), output and argument
 helpers, the error trap, frames and unique names, a key/value store, and the GNU
-tool resolver `ktool`. There is no tag or release yet; this file groups the
+tool resolver `ktool`. This file groups the
 whole history by phase, newest first. The reference is [README.md](README.md).
 Commit hashes in parentheses point at the change for readers who want the diff.
 
-## Unreleased — first public release (draft)
+## 0.1.0 — 2026-11-01
 
 ### Launch: portability, CI and the bash 5.1 floor (2026-10-20 .. 2026-10-30, launch L0-L5)
 
