@@ -11,8 +11,11 @@ forgotten and never resolved again by name. Load them by loading kbool:
 source /path/to/kbool/kbool.sh || exit
 ```
 
-The entry document — quick start, header shapes, the configuration chain, how
-to run the tests — is the [kbool README](https://github.com/Keksov/kbool/blob/main/README.md). This page is the
+The entry document — install, quick start, how to run the tests — is the
+[kbool README](https://github.com/Keksov/kbool/blob/main/README.md); the header shapes are in
+[kbool reference, Units](https://github.com/Keksov/kbool/blob/main/docs/reference.md#units) and the
+configuration chain in
+[kbool reference, Configuration](https://github.com/Keksov/kbool/blob/main/docs/reference.md#configuration). This page is the
 reference of the loader's public functions (section 1), the rules they keep
 (2–4), the security notes (5), the limitations (6) and the GNU tool resolver
 (7). The design, with every decision and its reasons, is [kklass/USES_PLAN.md](https://github.com/Keksov/kklass/blob/main/docs/dev/USES_PLAN.md);
@@ -444,8 +447,7 @@ kk.config colour; echo "unknown key: rc=$?"      # => unknown key: rc=2
 ## 7. The GNU tool resolver (`ktool.sh`)
 
 The core is tool-free; the kcl wrapper units (TSed, TAwk, TGrep, TFind, THead,
-TTail) drive the **GNU** tool and find it by name (owner decision OG1 = A,
-launch L3.3). `ktool` is the one place that knows how. It is not loaded by
+TTail) drive the **GNU** tool and find it by name. `ktool` is the one place that knows how. It is not loaded by
 `kbool.sh`; a unit that needs it says `kk.uses ktool`.
 
     ktool.gnu FAMILY     RESULT = absolute path of a GNU FAMILY; rc 0 / 1 none / 2 unknown FAMILY
@@ -462,8 +464,8 @@ launch L3.3). `ktool` is the one place that knows how. It is not loaded by
 
 Git for Windows and MSYS2 ship the GNU tools in `/usr/bin`. uutils coreutils
 (the default on Ubuntu 25.10+) is accepted for `head` and `tail` only, from
-version 0.2.2 (owner decision OG8: 0.2.2 and 0.12.0 pass THead/TTail; older
-was not measured): the banner is `[path]head (uutils coreutils) X.Y.Z…` (the family
+version 0.2.2 (0.2.2 and 0.12.0 pass the THead/TTail tests; older versions
+were not measured): the banner is `[path]head (uutils coreutils) X.Y.Z…` (the family
 must be named: a uutils `head` is no `tail`), the version is the three
 numbers after the first such marker (a suffix such as `-rc1` is ignored, so a
 pre-release of the floor passes), compared numerically against the floor
