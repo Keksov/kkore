@@ -151,10 +151,12 @@ uf_run() {
     UF_RC=$?
 }
 
-# uf_win /c/x/y -> UF_WIN='C:\x\y' (lexical; only for a /<drive>/ path)
+# uf_win /c/x/y (or /cygdrive/c/x/y) -> UF_WIN='C:\x\y' (lexical; only for a /<drive>/ path)
 uf_win() {
-    local __d=${1:1:1} __r=${1:2}
-    [[ $1 == /[A-Za-z]/* ]] || { echo "uf_win: not a /<drive>/ path: $1" >&2; return 1; }
+    local __p=$1
+    [[ $__p == /cygdrive/[A-Za-z]/* ]] && __p=${__p#/cygdrive}   # Cygwin's default drive prefix
+    local __d=${__p:1:1} __r=${__p:2}
+    [[ $__p == /[A-Za-z]/* ]] || { echo "uf_win: not a /<drive>/ path: $1" >&2; return 1; }
     UF_WIN="${__d^^}:${__r//\//\\}"
 }
 
