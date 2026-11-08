@@ -7,6 +7,13 @@ tool resolver `ktool`. This file groups the
 whole history by phase, newest first. The reference is [README.md](README.md).
 Commit hashes in parentheses point at the change for readers who want the diff.
 
+## 0.1.1 — 2026-11-08
+
+No change to the units.
+
+* Tests: the `uf_win` fixtures accept Cygwin's `/cygdrive/<drive>/` paths, for
+  the new standalone Cygwin CI row (593bff6).
+
 ## 0.1.0 — 2026-11-01
 
 ### Launch: portability, CI and the bash 5.1 floor (2026-10-20 .. 2026-10-30, launch L0-L5)
