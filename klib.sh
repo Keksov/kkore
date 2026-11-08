@@ -282,7 +282,7 @@ kk._is_ident() {   # NAME
 #
 # Refused: anything that is not a plain identifier; the kklass reserved set
 # `this __inst__ __class__ RESULT REPLY IFS state` and the `__kk_`/`__KK_` space
-# (`state` is in it because kk._run_frame_body binds it as a nameref onto
+# (`state` is in it because every kklass member body binds it as a nameref onto
 # `${inst}_data` in EVERY member frame, so an output array called `state` can
 # never reach the caller from inside an instance member — a framework fact, not
 # a per-unit convention); each
