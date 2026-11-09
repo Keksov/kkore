@@ -61,6 +61,16 @@ An rc-2 header error also **taints** the unit around it (section 2.4). With
 arguments (`source unit.sh x`) it prints `kbool: WARNING: unit 'NAME' called
 with arguments; units take none` and goes on.
 
+**A dotted NAME** (`fv.views`; the file is `fv.views.sh`) is loaded and
+registered like any unit, but it declares **no function namespace**: namespaces
+are identifiers, and the header declares NAME only when `kk._is_ident NAME`
+holds (`kuse.sh`, in `kk.unit`). So the kklass guard "a class or an instance may
+not be named like a unit / namespace" has nothing to check for such a unit
+(`__KK_NAMESPACES` has no entry for it). That is harmless: a class or an
+instance name cannot contain a dot (`defineClass 'a.b'` → `Invalid class name`,
+`T.new 'a.b'` → `Invalid instance name`), so none can clash with it. The unit's
+functions `NAME.*` are still its own; the kcl test harness counts them that way.
+
 ### `kk.unit --forget NAME` — the development hatch
 
 Drops NAME's registration and the sites of the classes it declared, so the next
