@@ -23,7 +23,7 @@ the code comments of [`kuse.sh`](kuse.sh) are the fine print.
 
 | unit | defines | |
 |---|---|---|
-| `kuse` | `kk.unit`, `kk.uses`, `kk.namespace`, `kk.project`, `kk.config`, `kk.defined` | section 1 |
+| `kuse` | `kk.unit`, `kk.uses`, `kk.namespace`, `kk.project`, `kk.config`, `kk.defined`, `kk.settings`, `kk.localeDefault` | section 1 |
 | `klib` | `kl.write`, `kl.writeln`, `kl.errln`, `kl.getTopCaller`; the guards `kk.isInt`, `kk.isNum`, `kk._outName`, `kk._is_ident`; `kk.debug`, `kk.warn` | contract: [kcl/README.md §1.2, §1.5, §1.7](https://github.com/Keksov/kcl/blob/main/README.md#1-the-kcl-contract) |
 | `kerr` | the ERR trap and error reporting: `ke.setTrap`, `ke.onError`, `ke.setError`, `ke.hasError`, `ke.reportError`, `ke.enableErrorReport`, `ke.errorsReportingOff`, `ke.exitOnErrorOn/Off` | the trap is set by an explicit `ke.setTrap` (units take no arguments) |
 | `kvar` | `kv.new` (unique names), the frame stack `kv.framePush/Pop/Current/Instance/Class`, `kv.set/get/free` | used by kklass's dispatch |
@@ -138,6 +138,80 @@ system paths are not in it.
 rc 0 NAME is in the merged `defines`; rc 1 not; rc 2 no name or more than one
 argument (and, printed, kbool not loaded). Case-sensitive. Use it in an
 ordinary `if` — there is no conditional-loading syntax.
+
+### `kk.settings FN [VAR...]` and `kk.localeDefault` — settings hooks
+
+A unit's load-time code whose result can differ between two starts of a
+script goes into one function of the unit, its **settings hook**: reads of the
+environment or of a caller's preset of a public name (`: "${X:=default}"`),
+the locale, `PATH` probes, pids and descriptors. The unit passes that function
+to `kk.settings` with the variables it sets:
+
+```bash
+greet._settings() {
+    : "${GREET_NAME:=world}"     # a caller's preset wins
+    kk.localeDefault             # LC_CTYPE=C.UTF-8 when no locale is set
+    return 0
+}
+kk.settings greet._settings GREET_NAME LC_CTYPE || return
+```
+
+* `kk.settings` is valid **only during a unit's load**, after FN is defined. It
+  runs FN at once and records it under the unit being loaded, in load order,
+  with each VAR (several units may list one VAR: a unit that appends to another
+  unit's registry lists that variable too). FN may be `:` (VARs only, nothing
+  to run). Internal `__` self-defaults stay at load and need no hook.
+* rc = FN's rc, so `|| return` fails the load when the hook fails. A non-zero
+  rc also **taints** the unit (section 2.4), so even a plain-sourced unit that
+  ignored it loads again next time.
+* rc 2, printed, nothing recorded or run: outside a unit's load, or in a
+  subshell of it (`x=$(kk.settings …)` — the record would be lost with the
+  subshell). rc 2, printed, and the unit tainted like a header error: no FN,
+  FN not a function, a VAR that is not a name, a call from inside a running
+  hook.
+* `kk.unit --forget` (and any failed load) drops the unit's records; a reload
+  records them again.
+* Today this only runs the hook; the records let a later load image
+  (`kk.image`, [IMAGE_PLAN](https://github.com/Keksov/kklass/blob/main/docs/dev/IMAGE_PLAN.md))
+  run the hooks again on every start instead of the whole load.
+* `kk.localeDefault` exports `LC_CTYPE=C.UTF-8` when none of `LC_ALL`,
+  `LC_CTYPE`, `LANG` is set non-empty, and does nothing otherwise. rc 0.
+
+**Writing a hook.** An image start runs the hook again, outside the load, so:
+
+* it is a function: a plain `declare X` / `declare -A M` in it makes a local
+  that is gone when it returns — write `declare -g` / `declare -gA` (a plain
+  assignment or `: "${X:=d}"` is global already);
+* end it with `return 0`, or make sure its last command cannot fail: a last
+  line `[[ -n ${X-} ]] && Y=1` returns 1 whenever `X` is unset, and
+  `kk.settings FN || return` then fails the load in some environments only;
+* no `kk.settings`, `kk.uses` or `source` of a unit inside it: only the unit's
+  load loads units. `kk.settings` there and a `kk.uses` / `source` that would
+  load a unit are refused (rc 2, printed, the unit tainted); a `kk.uses` of a
+  unit already loaded stays the usual no-op (rc 0);
+* no load-only context: `KK_UNIT_DIR`, the loader's state and the load's
+  arguments are not there on an image start — keep a copy at file scope
+  (`GREET_DIR=$KK_UNIT_DIR`) and read the copy;
+* it must be safe to run again: an append to a registry checks for its entry
+  first, a default uses `:=`, nothing counts twice.
+
+<!-- doctest -->
+```bash
+mkdir -p lib
+cat > lib/greet.sh <<'EOF'
+[[ ${__KK_UNITS[@]@a} == A* ]] || source "${KBOOL_HOME-}/kbool.sh" || return 2
+kk.unit greet || return $__kk_unit_rc
+greet._settings() { : "${GREET_NAME:=world}"; kk.localeDefault; return 0; }
+kk.settings greet._settings GREET_NAME LC_CTYPE || return
+greet.hello() { echo "hello, $GREET_NAME (LC_CTYPE=${LC_CTYPE-unset})"; }
+EOF
+source /path/to/kbool/kbool.sh || exit
+unset LANG LC_ALL LC_CTYPE                   # no locale at all
+GREET_NAME=kbool
+kk.uses lib/greet.sh; greet.hello            # => hello, kbool (LC_CTYPE=C.UTF-8)
+kk.settings greet._settings; echo "rc=$?"    # => rc=2
+# 2> kk.settings greet._settings: not inside a unit's load
+```
 
 ### Variables
 
@@ -300,7 +374,9 @@ subshell shares the parent's registry.
 
 * **Units** — NAME → file; the file's PWD for relative spellings; done /
   tainted / system flags; NAME → the classes it declared (fed by kklass, so
-  `--forget` can drop them).
+  `--forget` can drop them); the load order (`__KK_UNIT_ORDER`: every unit in
+  the order its load began, system units marked; `kuse.sh` header) and the
+  settings hooks with their variables (`kk.settings`).
 * **Declared namespaces** — X → the unit and file that declared it first
   (first owner wins). Declared are: every unit's own name (`kk.unit`), every
   `kk.namespace X`, and kkore's `kk kl ke kv kc`; kklass adds its own `kkp`
@@ -541,7 +617,9 @@ A new family is one row in each table at the top of `ktool.sh`.
 004 (frame / use / error trap), 009 (units and uses), 010 (kbool.sh), 011
 (config and kk.project), 012 (declared namespaces), 013 (system unit headers +
 lint), 014 (failed dependencies, lookup without a cwd hijack), 015 (the runnable
-examples of this page and of the kbool README). The GNU tool resolver: 017
+examples of this page and of the kbool README), 019 (`kk.settings`,
+`kk.localeDefault`, the load-order list), 020 (`KBOOL_VERSION` in `kbool.sh`
+equals the newest heading of the kbool CHANGELOG). The GNU tool resolver: 017
 (fake tools on a private PATH). Shared helpers, not test files:
 `unit_fixture.sh` (a private kbool tree + a hermetic `uf_run`), `unit_lint.sh`,
 `doc_examples.sh` (the `<!-- doctest -->` runner).

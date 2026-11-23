@@ -54,6 +54,23 @@
 #                           defines, debug level and .ckk folder take effect. Once,
 #                           and before the first kk.uses of a non-system unit.
 #   kk.config KEY [OUTVAR]  the merged config value (unitpath, defines, debug, ckkdir).
+#   kk.settings FN [VAR...] a unit's settings hook (kklass/docs/dev/IMAGE_PLAN.md §5.2,
+#                           IMG-D5): only inside a unit's load, after FN is defined.
+#                           Runs FN at once and records it under the unit being loaded
+#                           (__KK_UNIT_SETTINGS, load order) with the VARs it sets
+#                           (__KK_SETTINGS_VARS; one VAR may be listed by several
+#                           units). FN may be `:` (nothing to run, VARs only). rc =
+#                           FN's rc; a non-zero rc also taints the unit (U34), so a
+#                           plain-sourced unit whose hook failed loads again. rc 2,
+#                           printed, nothing recorded or run: outside a unit's load or
+#                           in a subshell of it (`$(kk.settings …)`: the record would be
+#                           lost); and, the unit tainted like a header error, inside a
+#                           running hook, without FN, FN not a function, a VAR not a
+#                           name. `kk.unit --forget` (any
+#                           drop of the unit) removes its entries. The rules for a
+#                           hook function are in "Settings hooks" below.
+#   kk.localeDefault        export LC_CTYPE=C.UTF-8 when none of LC_ALL, LC_CTYPE,
+#                           LANG is set non-empty; else nothing. rc 0.
 # The config file format and the lookup chain (KBOOL_CONFIG -> project -> user ->
 # system -> built-in) are described at the "Configuration" section below.
 #
@@ -122,6 +139,37 @@
 #                      `${__KK_LOADED[@]@a} == A` by every entry point before any table
 #                      is subscripted by a non-literal key (on a non-assoc table the key
 #                      would be evaluated as arithmetic: `d[$(cmd)]` runs cmd)
+#   __KK_UNIT_ORDER    INDEXED, dense: the load order of the units (IMAGE_PLAN §7.7), one
+#                      element `KIND<US>NAME` per registered unit, oldest first. KIND is
+#                      `s` for a system unit (kbool.sh loaded it: __KK_UNIT_SYS) and `u`
+#                      for every other unit. It is REGISTRATION order (when a load
+#                      began, plan §7.7): a unit is appended when it is registered for a
+#                      load — by its header (kk.unit, rc 0) or by kbool.sh
+#                      (kk._unit_register, which turns the header's `u` entry of a system
+#                      unit into an `s` one) — so a unit appears before the units its
+#                      load uses (`kk.uses a` where a uses b: a, b). Replaying the `u`
+#                      units in this order BY PATH, `kk.uses "${__KK_UNITS[NAME]}"`,
+#                      repeats the same nesting (by name, a unit local to the original
+#                      caller's folder would not be found from another file). Every
+#                      drop removes the entry (`kk.unit --forget`, a failed or
+#                      incomplete load), so a reload is appended at the end again.
+#                      While a unit loads, and after a plain-sourced load that was
+#                      tainted (U34), its entry is there but the unit is not complete:
+#                      a reader keeps only the names kk._unit_complete accepts (quiet,
+#                      no side effects). kbool itself (the sentinel) is not in it.
+#   __KK_UNIT_PID      name -> $BASHPID of the shell that registered it for its load
+#                      (kk.settings refuses a call from a subshell of the load)
+#   __KK_UNIT_SETTINGS INDEXED, dense: one element `UNIT<US>FN` per kk.settings call, in
+#                      call order (a unit's hooks in its load order; a nested load's
+#                      between its parent's). A drop of UNIT removes its elements.
+#   __KK_SETTINGS_VARS VAR -> the units that listed VAR in kk.settings, each `UNIT<US>`
+#                      (first lister first, no repeats); a drop of UNIT removes it, an
+#                      emptied VAR loses its key.
+#   __KK_SETTINGS_RUN  while kk.settings runs a hook: `B<US>UNIT<US>FN`, B = the
+#                      bottom-relative index of that kk.settings frame in FUNCNAME; ''
+#                      otherwise. Counts only while that frame is still on the stack
+#                      (kk._settings_hook), so a value left behind by an abnormal exit is
+#                      inert.
 declare -g __KK_SEP=$'\x1f'
 kk._unit_tables() {
     local -
@@ -129,7 +177,8 @@ kk._unit_tables() {
     set +u
     for __kk_t in __KK_UNITS __KK_UNIT_SRC __KK_UNIT_BOT __KK_UNIT_DONE __KK_UNIT_FAIL \
                   __KK_UNIT_SYS __KK_UNIT_CLASSES __KK_UNIT_FILES __KK_UNIT_CAND __KK_UNIT_IDX \
-                  __KK_UNIT_RES __KK_UNIT_HIT __KK_DEFINES __KK_CFG __KK_CFG_LV __KK_NAMESPACES __KK_FILE_PWD; do
+                  __KK_UNIT_RES __KK_UNIT_HIT __KK_DEFINES __KK_CFG __KK_CFG_LV __KK_NAMESPACES __KK_FILE_PWD \
+                  __KK_SETTINGS_VARS __KK_UNIT_PID; do
         # keep an ASSIGNED assoc; replace anything else (unset, declared-but-
         # unassigned — whose `${R[@]@a}` reads "A" —, a scalar, an indexed array)
         if [[ ${!__kk_t@a} != *A* ]]; then
@@ -138,7 +187,7 @@ kk._unit_tables() {
             eval "$__kk_t=()"
         fi
     done
-    for __kk_t in __KK_UNIT_PROJPATH __KK_UNIT_SYSPATH; do
+    for __kk_t in __KK_UNIT_PROJPATH __KK_UNIT_SYSPATH __KK_UNIT_ORDER __KK_UNIT_SETTINGS; do
         if [[ ${!__kk_t@a} != *a* ]]; then
             unset "$__kk_t"
             declare -ga "$__kk_t"
@@ -146,7 +195,7 @@ kk._unit_tables() {
         fi
     done
     if [[ ${__KK_UNIT_IDX_OK-} != [01] ]]; then __KK_UNIT_IDX_OK=0; fi
-    : "${__KK_PROJECT=}" "${__KK_UNIT_USED=}" "${__KK_CFG_VKW=}"
+    : "${__KK_PROJECT=}" "${__KK_UNIT_USED=}" "${__KK_CFG_VKW=}" "${__KK_SETTINGS_RUN=}"
     __kk_unit_rc=0          # the header's `return $__kk_unit_rc`: 0 skip, 2 error
     return 0
 }
@@ -309,39 +358,91 @@ kk._unit_taint() {
     return 0
 }
 
+# kk._unit_loading OUT — OUT (a literal name: RESULT, or a caller's __kk_ local)
+# = the name of the innermost unit being loaded right now (rc 0), or '' (rc 1):
+# the innermost `source` frame whose file is a registered, not yet complete unit
+# registered at exactly that frame. The one stack walk kk._unit_current and
+# kk.settings share; it reads no table but the four below and writes only OUT.
+kk._unit_loading() {
+    if [[ ${__KK_LOADED[@]@a} != A ]]; then printf -v "$1" %s ""; return 2; fi   # R14
+    local __kk_lw_j __kk_lw_s __kk_lw_n=${#BASH_SOURCE[@]}
+    for (( __kk_lw_j = 1; __kk_lw_j < __kk_lw_n; __kk_lw_j++ )); do
+        [[ ${FUNCNAME[__kk_lw_j]-} == source ]] || continue
+        __kk_lw_s=${BASH_SOURCE[__kk_lw_j]##*[/\\]}
+        __kk_lw_s=${__kk_lw_s%.sh}
+        if [[ -n $__kk_lw_s && -n ${__KK_UNITS[$__kk_lw_s]+x} && -z ${__KK_UNIT_DONE[$__kk_lw_s]+x} \
+              && ${__KK_UNIT_SRC[$__kk_lw_s]-} == "${BASH_SOURCE[__kk_lw_j]}" \
+              && ${__KK_UNIT_BOT[$__kk_lw_s]--1} == $(( __kk_lw_n - 1 - __kk_lw_j )) ]]; then
+            printf -v "$1" '%s' "$__kk_lw_s"
+            return 0
+        fi
+    done
+    printf -v "$1" '%s' ""
+    return 1
+}
+
 # kk._unit_current -> RESULT: the name of the innermost unit being loaded right
 # now (rc 0), or '' (rc 1). The hook kklass uses to file a class under its unit (U2).
 kk._unit_current() {
     RESULT=""
     [[ ${__KK_LOADED[@]@a} == A ]] || return 1     # no registry of this shell (R14)
-    local __kk_j __kk_s __kk_n=${#BASH_SOURCE[@]}
-    for (( __kk_j = 1; __kk_j < __kk_n; __kk_j++ )); do
-        [[ ${FUNCNAME[__kk_j]-} == source ]] || continue
-        __kk_s=${BASH_SOURCE[__kk_j]##*[/\\]}
-        __kk_s=${__kk_s%.sh}
-        if [[ -n $__kk_s && -n ${__KK_UNITS[$__kk_s]+x} && -z ${__KK_UNIT_DONE[$__kk_s]+x} \
-              && ${__KK_UNIT_SRC[$__kk_s]-} == "${BASH_SOURCE[__kk_j]}" \
-              && ${__KK_UNIT_BOT[$__kk_s]--1} == $(( __kk_n - 1 - __kk_j )) ]]; then
-            RESULT=$__kk_s
-            return 0
-        fi
-    done
-    RESULT=""
-    return 1
+    kk._unit_loading RESULT
+}
+
+# kk._unit_complete NAME — rc 0 when the registered unit NAME is completely
+# loaded: marked done, or (a plain-sourced load, marked lazily) not tainted and
+# its `source` frame no longer on the stack. rc 1 otherwise (not registered,
+# loading now, tainted), rc 2 without a registry. Quiet and without side effects
+# (kk._unit_check, which also marks done, prints a cycle while a unit loads):
+# the filter for a reader of __KK_UNIT_ORDER.
+kk._unit_complete() {
+    [[ ${__KK_LOADED[@]@a} == A ]] || return 2       # no registry of this shell (R14)
+    [[ -n ${1-} && -n ${__KK_UNITS[$1]+x} ]] || return 1
+    [[ -z ${__KK_UNIT_DONE[$1]+x} ]] || return 0
+    [[ -z ${__KK_UNIT_FAIL[$1]+x} ]] || return 1
+    local __kk_b=${__KK_UNIT_BOT[$1]--1} __kk_n=${#BASH_SOURCE[@]} __kk_k
+    [[ $__kk_b == [0-9]* && $__kk_b != *[!0-9]* ]] || return 0
+    __kk_k=$(( __kk_n - 1 - __kk_b ))
+    if (( __kk_k >= 1 && __kk_k < __kk_n )) \
+       && [[ ${FUNCNAME[__kk_k]-} == source && ${BASH_SOURCE[__kk_k]-} == "${__KK_UNIT_SRC[$1]-}" ]]; then
+        return 1
+    fi
+    return 0
 }
 
 # kk._unit_register NAME FILE — register NAME as completely loaded from FILE
 # (kbool.sh, for the system units it sources plainly).
 kk._unit_register() {
     [[ ${__KK_LOADED[@]@a} == A ]] || return 2       # no registry of this shell (R14, U1b R2)
+    local __kk_l=$(( ${#__KK_UNIT_ORDER[@]} - 1 ))
     if [[ -z ${__KK_UNITS[$1]+x} ]]; then
         __KK_UNITS[$1]=$2
         __KK_UNIT_SRC[$1]=$2
         __KK_UNIT_BOT[$1]=-1
+        __KK_UNIT_ORDER+=("s$__KK_SEP$1")
+    elif (( __kk_l >= 0 )) && [[ ${__KK_UNIT_ORDER[__kk_l]} == "u$__KK_SEP$1" ]]; then
+        __KK_UNIT_ORDER[__kk_l]="s$__KK_SEP$1"    # its header's `u` entry (uses U3), last
+    else
+        kk._unit_order_del "$1"
+        __KK_UNIT_ORDER+=("s$__KK_SEP$1")
     fi
     __KK_UNIT_DONE[$1]=1
     __KK_UNIT_SYS[$1]=1
     unset '__KK_UNIT_FAIL[$1]'
+}
+
+# kk._unit_order_del NAME — remove NAME's entry from __KK_UNIT_ORDER (kept dense).
+# Exact names also under nocasematch (`ca` is not `CA`).
+kk._unit_order_del() {
+    [[ ${__KK_LOADED[@]@a} == A ]] || return 2       # no registry of this shell (R14)
+    local __kk_e __kk_nc=0
+    local -a __kk_o=()
+    if [[ $BASHOPTS == *nocasematch* ]]; then __kk_nc=1; shopt -u nocasematch; fi
+    for __kk_e in "${__KK_UNIT_ORDER[@]}"; do
+        [[ ${__kk_e#*"$__KK_SEP"} == "$1" ]] || __kk_o+=("$__kk_e")
+    done
+    if (( __kk_nc )); then shopt -s nocasematch; fi
+    __KK_UNIT_ORDER=("${__kk_o[@]}")
 }
 
 # kk._unit_core NAME — rc 0 when the REGISTERED unit NAME is a system unit
@@ -395,7 +496,9 @@ kk._unit_drop() {
         done
     fi
     unset '__KK_UNITS[$1]' '__KK_UNIT_SRC[$1]' '__KK_UNIT_BOT[$1]' '__KK_UNIT_DONE[$1]' \
-          '__KK_UNIT_FAIL[$1]' '__KK_UNIT_CLASSES[$1]'
+          '__KK_UNIT_FAIL[$1]' '__KK_UNIT_CLASSES[$1]' '__KK_UNIT_PID[$1]'
+    kk._unit_order_del "$1"
+    if (( ${#__KK_UNIT_SETTINGS[@]} )); then kk._settings_drop "$1"; fi
 }
 
 # kk._unit_reset — empty every registry table (kbool.sh: a fresh start, and the
@@ -406,7 +509,8 @@ kk._unit_reset() {
     unset __KK_UNITS __KK_UNIT_SRC __KK_UNIT_BOT __KK_UNIT_DONE __KK_UNIT_FAIL __KK_UNIT_SYS \
           __KK_UNIT_CLASSES __KK_UNIT_FILES __KK_UNIT_CAND __KK_UNIT_IDX __KK_UNIT_RES \
           __KK_UNIT_HIT __KK_DEFINES __KK_UNIT_PROJPATH __KK_UNIT_SYSPATH __KK_UNIT_IDX_OK \
-          __KK_LOADED __KK_CFG __KK_CFG_LV __KK_NAMESPACES __KK_FILE_PWD __KK_PROJECT __KK_UNIT_USED __KK_CFG_VKW
+          __KK_LOADED __KK_CFG __KK_CFG_LV __KK_NAMESPACES __KK_FILE_PWD __KK_PROJECT __KK_UNIT_USED __KK_CFG_VKW \
+          __KK_UNIT_ORDER __KK_UNIT_SETTINGS __KK_SETTINGS_VARS __KK_UNIT_PID __KK_SETTINGS_RUN
     kk._unit_tables
 }
 
@@ -555,6 +659,154 @@ kk.namespace() {
 }
 
 # ---------------------------------------------------------------------------
+# Settings hooks (kklass/docs/dev/IMAGE_PLAN.md §5, IMG-D5). A unit's load-time
+# statements whose result can differ between two starts — environment reads,
+# caller presets of public names, locale, PATH probes, pids and fds — live in a
+# function the unit passes to kk.settings, with the variables that function
+# sets. Today kk.settings just runs it; the recorded hooks let a later load
+# image (kk.image, IMAGE_PLAN §9) run them again on every start.
+#
+#     myunit._settings() {
+#         : "${MYUNIT_WIDTH:=80}"
+#         kk.localeDefault
+#         return 0
+#     }
+#     kk.settings myunit._settings MYUNIT_WIDTH LC_CTYPE || return
+#
+# Writing a hook (the image runs it again on every start, outside the load):
+#   * it is a FUNCTION, so a plain `declare X` / `declare -A M` inside it makes a
+#     local that is gone when it returns: write `declare -g` / `declare -gA`
+#     (a plain assignment or `: "${X:=d}"` is global already);
+#   * end it with `return 0`, or make sure its last command cannot fail: its rc
+#     is kk.settings' rc, and `[[ -n ${X-} ]] && Y=1` as the last line returns 1
+#     whenever X is unset — which fails the load under `kk.settings FN || return`
+#     (a lint, I1's kcl/tests/001, can check that the last line of every
+#     function passed to kk.settings is `return 0` or an assignment);
+#   * no `kk.uses`, no `source` of a unit and no `kk.settings` inside it: a hook
+#     must not load units — only its unit's load does. Refused with rc 2 and a
+#     message (the unit tainted): kk.settings, and a kk.uses / source that would
+#     LOAD a unit; a kk.uses or re-source of a unit already loaded stays the
+#     usual no-op (rc 0), so a helper that does `kk.uses dep` defensively works;
+#   * no load-only context: KK_UNIT_DIR, the load's positional parameters, the
+#     loader's state are not there when an image start runs it — copy what it
+#     needs at file scope (`MYUNIT_DIR=$KK_UNIT_DIR`) and read the copy;
+#   * it must be safe to run again (idempotent): an append to a registry checks
+#     for its entry first, a default uses `:=`, nothing is counted twice.
+
+# kk._settings_hook MIN — rc 0 while a kk.settings frame at index >= MIN in this
+# function's view is running its hook (__KK_SETTINGS_RUN, and that frame still
+# on the stack); then __kk_hk (a caller's local) = "FN of unit 'U'". rc 1 else.
+kk._settings_hook() {
+    local __kk_r=${__KK_SETTINGS_RUN-} __kk_b __kk_k
+    [[ -n $__kk_r ]] || return 1
+    __kk_b=${__kk_r%%"$__KK_SEP"*}
+    [[ $__kk_b == [0-9]* && $__kk_b != *[!0-9]* ]] || return 1
+    __kk_k=$(( ${#FUNCNAME[@]} - 1 - __kk_b ))
+    (( __kk_k >= $1 )) && [[ ${FUNCNAME[__kk_k]-} == kk.settings ]] || return 1
+    __kk_r=${__kk_r#*"$__KK_SEP"}
+    __kk_hk="${__kk_r#*"$__KK_SEP"} of unit '${__kk_r%%"$__KK_SEP"*}'"
+    return 0
+}
+
+# kk.settings FN [VAR...] — see the header. Fork-free; the unit being loaded is
+# found by kk._unit_loading (the caller's RESULT is not touched).
+kk.settings() {
+    if [[ ${__KK_LOADED[@]@a} != A ]]; then
+        printf 'kbool: error: kk.settings %s: kbool.sh is not loaded\n' "$*" >&2
+        return 2
+    fi
+    local __kk_fn=${1-} __kk_u="" __kk_v __kk_hk="" __kk_nc=0 __kk_rc
+    if ! kk._unit_loading __kk_u; then
+        kk._unit_err "kk.settings ${__kk_fn}: not inside a unit's load (call it in the unit file, after the function is defined)"
+        return 2
+    fi
+    if [[ ${__KK_UNIT_PID[$__kk_u]-} != "$BASHPID" ]]; then
+        kk._unit_err "kk.settings ${__kk_fn}: called in a subshell of the load of unit '$__kk_u' (\$( ), a pipe, ( )): nothing would be recorded"
+        return 2
+    fi
+    if [[ -n ${__KK_SETTINGS_RUN-} ]] && kk._settings_hook 2; then
+        kk._unit_err "kk.settings ${__kk_fn}: called inside the settings hook $__kk_hk; a hook may not call kk.settings (in unit '$__kk_u')"
+        kk._unit_taint 2
+        return 2
+    fi
+    if (( $# == 0 )) || [[ -z $__kk_fn ]]; then
+        kk._unit_err "kk.settings: usage 'kk.settings FN [VAR...] || return' (in unit '$__kk_u')"
+        kk._unit_taint 2
+        return 2
+    fi
+    if [[ $__kk_fn != : ]] && ! declare -F -- "$__kk_fn" >/dev/null; then
+        kk._unit_err "kk.settings: '$__kk_fn' is not a function (define it before kk.settings; in unit '$__kk_u')"
+        kk._unit_taint 2
+        return 2
+    fi
+    for __kk_v in "${@:2}"; do
+        if ! kk._is_ident "$__kk_v"; then
+            kk._unit_err "kk.settings $__kk_fn: '$__kk_v' is not a variable name (letters, digits, _; in unit '$__kk_u')"
+            kk._unit_taint 2
+            return 2
+        fi
+    done
+    __KK_UNIT_SETTINGS+=("$__kk_u$__KK_SEP$__kk_fn")
+    if [[ $BASHOPTS == *nocasematch* ]]; then __kk_nc=1; shopt -u nocasematch; fi
+    for __kk_v in "${@:2}"; do
+        case ${__KK_SETTINGS_VARS[$__kk_v]-} in
+            "$__kk_u$__KK_SEP"*|*"$__KK_SEP$__kk_u$__KK_SEP"*) ;;
+            *) __KK_SETTINGS_VARS[$__kk_v]+=$__kk_u$__KK_SEP ;;
+        esac
+    done
+    if (( __kk_nc )); then shopt -s nocasematch; fi
+    # the hook runs marked (M1: no kk.settings / unit load inside it); the mark
+    # is cleared on every return of FN and is inert once this frame is gone
+    __KK_SETTINGS_RUN="$(( ${#FUNCNAME[@]} - 1 ))$__KK_SEP$__kk_u$__KK_SEP$__kk_fn"
+    "$__kk_fn"
+    __kk_rc=$?
+    __KK_SETTINGS_RUN=""
+    # a failed hook leaves the unit incomplete (U34): a plain-sourced unit that
+    # ignored the rc, or returned it, loads again next time
+    if (( __kk_rc != 0 )); then kk._unit_taint 2; fi
+    return "$__kk_rc"
+}
+
+# kk._settings_drop UNIT — remove UNIT's kk.settings records (kk._unit_drop).
+# Exact names also under nocasematch.
+kk._settings_drop() {
+    [[ ${__KK_LOADED[@]@a} == A ]] || return 2       # no registry of this shell (R14)
+    local __kk_e __kk_k __kk_l __kk_hit=0 __kk_nc=0
+    local -a __kk_o=()
+    if [[ $BASHOPTS == *nocasematch* ]]; then __kk_nc=1; shopt -u nocasematch; fi
+    for __kk_e in "${__KK_UNIT_SETTINGS[@]}"; do
+        if [[ ${__kk_e%%"$__KK_SEP"*} == "$1" ]]; then
+            __kk_hit=1
+        else
+            __kk_o+=("$__kk_e")
+        fi
+    done
+    if (( __kk_hit )); then
+        __KK_UNIT_SETTINGS=("${__kk_o[@]}")
+        for __kk_k in "${!__KK_SETTINGS_VARS[@]}"; do
+            __kk_l=$__KK_SEP${__KK_SETTINGS_VARS[$__kk_k]}
+            __kk_l=${__kk_l/"$__KK_SEP$1$__KK_SEP"/$__KK_SEP}
+            __kk_l=${__kk_l#"$__KK_SEP"}
+            if [[ -n $__kk_l ]]; then
+                __KK_SETTINGS_VARS[$__kk_k]=$__kk_l
+            else
+                unset '__KK_SETTINGS_VARS[$__kk_k]'
+            fi
+        done
+    fi
+    if (( __kk_nc )); then shopt -s nocasematch; fi
+    return 0
+}
+
+# kk.localeDefault — the kcl locale default (IMAGE_PLAN §5.2): no locale set at
+# all -> LC_CTYPE=C.UTF-8, exported (the units' byte/character semantics); any
+# non-empty LC_ALL, LC_CTYPE or LANG is left as it is. rc 0. For a unit's hook.
+kk.localeDefault() {
+    [[ -n ${LC_ALL:-}${LC_CTYPE:-}${LANG:-} ]] || export LC_CTYPE=C.UTF-8
+    return 0
+}
+
+# ---------------------------------------------------------------------------
 # The name index (U13', U16, P5/P6), lazy at two levels:
 #  * the CANDIDATE map (stem -> files named <stem>.sh, in search order) is built
 #    by one glob per path entry at the first name not found in the caller's
@@ -662,7 +914,7 @@ kk._unit() {
         return
     fi
     local __kk_name=${1-} __kk_src=${BASH_SOURCE[2]-} __kk_stem __kk_a __kk_p __kk_d __kk_n __kk_m \
-          __kk_ai=0 __kk_vo=0 __kk_id=0
+          __kk_ai=0 __kk_vo=0 __kk_id=0 __kk_hk=""
     __kk_unit_rc=2
     if [[ ${FUNCNAME[2]-} != source || -z $__kk_src ]]; then
         kk._unit_err "kk.unit ${__kk_name}: not the header of a unit file (it must be loaded by source or kk.uses)"
@@ -721,6 +973,12 @@ kk._unit() {
         # forget it (its classes too) and load it again below
         kk._unit_drop "$__kk_name"
     fi
+    # M1: a settings hook must not load units (a no-op re-source above is fine)
+    if [[ -n ${__KK_SETTINGS_RUN-} ]] && kk._settings_hook 1; then
+        kk._unit_err "kk.unit $__kk_name: a settings hook may not load units (inside the hook $__kk_hk; in '$__kk_src')"
+        kk._unit_taint 4
+        return 2
+    fi
     # a unit loaded (by any means) before kk.project could have read the defines
     # and resolved names without the project: kk.project is refused from now on (U37)
     # U22/U40: a unit's name is a function namespace — it may not be a built
@@ -748,6 +1006,10 @@ kk._unit() {
     if [[ $__kk_src != "$__kk_a" ]]; then __KK_FILE_PWD[$__kk_src]=$PWD; fi
     __KK_UNIT_BOT[$__kk_name]=$(( ${#BASH_SOURCE[@]} - 3 ))
     unset '__KK_UNIT_DONE[$__kk_name]' '__KK_UNIT_FAIL[$__kk_name]'
+    # the load order (IMAGE_PLAN §7.7): not registered until here, or dropped
+    # above, so the name has no entry yet — appended at the end
+    __KK_UNIT_ORDER+=("u$__KK_SEP$__kk_name")
+    __KK_UNIT_PID[$__kk_name]=$BASHPID     # kk.settings: no record from a subshell
     if (( __kk_id )); then kk._ns_declare "$__kk_name" "$__kk_name" "$__kk_a"; fi
     kk._unit_dir "$__kk_src"
     KK_UNIT_DIR=$__kk_d
@@ -836,7 +1098,7 @@ kk._uses() {
     done
     local -a __kk_args=("$@")
     local __kk_a __kk_f __kk_nm __kk_cdir="" __kk_pdir __kk_d __kk_n __kk_k __kk_rc __kk_sv __kk_svset __kk_hl \
-          __kk_found __kk_m __kk_p __kk_key
+          __kk_found __kk_m __kk_p __kk_key __kk_hk=""
     set --
     if (( ${#__kk_args[@]} == 0 )); then
         kk._unit_err "kk.uses: no unit named"
@@ -978,6 +1240,12 @@ kk._uses() {
                 return 2
             fi
             __kk_nm=$__kk_a
+        fi
+        # M1: a settings hook must not load units (its unit's load does that)
+        if [[ -n ${__KK_SETTINGS_RUN-} ]] && kk._settings_hook 1; then
+            kk._unit_err "kk.uses $__kk_a: a settings hook may not load units (inside the hook $__kk_hk)"
+            (( __kk_opt )) || kk._unit_taint 3
+            return 2
         fi
         # load it: no arguments (C10), plain `source` (C11), KK_UNIT_DIR kept (C19)
         __kk_svset=${KK_UNIT_DIR+1}
