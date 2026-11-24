@@ -691,7 +691,14 @@ kk.namespace() {
 #     loader's state are not there when an image start runs it — copy what it
 #     needs at file scope (`MYUNIT_DIR=$KK_UNIT_DIR`) and read the copy;
 #   * it must be safe to run again (idempotent): an append to a registry checks
-#     for its entry first, a default uses `:=`, nothing is counted twice.
+#     for its entry first, a default uses `:=`, nothing is counted twice;
+#   * hooks run again in __KK_UNIT_SETTINGS order — the order the kk.settings
+#     calls ran — NOT in unit order (__KK_UNIT_ORDER lists a unit when its load
+#     starts: tfind before the tutil it loads). A hook that appends to another
+#     unit's registry therefore comes after that unit's: call kk.settings
+#     after the `kk.uses` of the registry's owner (tfind's hook after `kk.uses
+#     tutil`, whose hook declares TUTIL_OUT_PREFIXES), and list the registry
+#     too (I1b critic M2; kcl's lint R7 checks it).
 
 # kk._settings_hook MIN — rc 0 while a kk.settings frame at index >= MIN in this
 # function's view is running its hook (__KK_SETTINGS_RUN, and that frame still
