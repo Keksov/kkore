@@ -108,6 +108,22 @@ EOF
 [[ -n ${IRO_C+x} ]] || declare -gr IRO_C=1
 IRO_V=2
 EOF
+    # iak: an associative array whose keys are every byte 0x80-0xFF and the
+    # characters a subscript treats specially — `]` `\` `*` `@` `"` `$` a
+    # backtick `'` a space `[` `~` `!` `=` and a few words with them — the
+    # keys %q-listed in an indexed array (read alike by every bash), set by a
+    # loop (CI run 45467673135: bash 5.1 lost fv.mouse's table with a key `@`)
+    local -a ks=(']' '\' '*' '@' '"' '$' '`' "'" ' ' '[' '~' '!' '=' 'a]b' 'x y' '$(echo no)' '*x' '@x' '\]' '-')
+    local i o c q=""
+    for (( i = 128; i < 256; i++ )); do printf -v o '%o' "$i"; printf -v c "\\$o"; ks+=("$c" "k$c"); done
+    LC_ALL=C printf -v q '%q ' "${ks[@]}"
+    if_unit "$fx" iak <<EOF
+declare -ga IAK_K=(${q% })
+declare -gA IAK_M=()
+for IAK_I in "\${!IAK_K[@]}"; do IAK_M[\${IAK_K[IAK_I]}]="v\${IAK_K[IAK_I]}"; done
+IAK_M[\$'\r']=vcr IAK_M[\$'\t']=vtab IAK_M[\$'\001']=v1 IAK_M[\$'\177']=v177 IAK_M[\$'a\rb']=vacrb
+iak.n() { local a='@' s='*' b=']' h=\$'\xff'; echo "n=\${#IAK_M[@]} at=\${IAK_M[\$a]-none} star=\${IAK_M[\$s]-none} br=\${IAK_M[\$b]-none} ff=\${#IAK_M[\$h]}"; }
+EOF
     cat > "$fx/dump.sh" <<'EOF'
 source "$FX/kkore/kimage.sh" || exit 9
 kk._img_state "$1" canon
@@ -128,6 +144,32 @@ echo "cmp rc=$? $__KK_IMG_DIFF"
 EOF
     mkdir -p "$fx/img" "$fx/home"
     touch -t 202001010000 "$fx/kbool.sh" "$fx"/kkore/*.sh "$fx"/kcl/*/*.sh || return 1
+}
+
+# if_age IMG SECONDS — make IMG look written SECONDS earlier: its write time
+# in the plain header line and in __kk_img_wtime (the same digit count, so the
+# header length in line 1 stays right); the holds and pruning read it
+# (pure bash, no `sed -i`: GNU-only; the image is read as bytes, no NUL in it)
+if_age() {
+    local l1 l2 t n z LC_ALL=C
+    { IFS= read -r l1; IFS= read -r l2; } < "$1"
+    t=${l2#"#P"$'\x1f'}
+    t=${t%%$'\x1f'*}
+    n=$(( t - $2 ))
+    IFS= read -r -d '' z < "$1" || :
+    z=${z/$'\n'"#P"$'\x1f'"$t"$'\x1f'/$'\n'"#P"$'\x1f'"$n"$'\x1f'}
+    z=${z/"__kk_img_wtime=$t"$'\n'/"__kk_img_wtime=$n"$'\n'}
+    printf '%s' "$z" > "$1.age" && mv -f "$1.age" "$1"
+}
+
+# if_pfield IMG N -> IF_F: field N of IMG's plain header line (0 wtime, 1 size,
+# 2 tag, 3 home, 4 prior, 5 mode, 6 flavour, 7 count, 8… files)
+if_pfield() {
+    local l1 l2 IFS=$'\x1f'
+    local -a a=()
+    { IFS= read -r l1; IFS= read -r l2; } < "$1"
+    a=(${l2#"#P"$'\x1f'})
+    IF_F=${a[$2]-}
 }
 
 # if_imgs — IF_IMGS = the image files (basenames, sorted by the glob) in $FX/img

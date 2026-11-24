@@ -21,7 +21,7 @@ source "$SCRIPT_DIR/image_fixture.sh"
 UF_FX="$_KT_TMPDIR/fx"
 if_build "$UF_FX" || { kt_test_start "fixture"; kt_test_fail "if_build failed"; exit 1; }
 FX="$UF_FX"
-UF_ENV=(KBOOL_IMAGE_DIR="$FX/img")
+UF_ENV=(KBOOL_IMAGE_DIR="$FX/img" KBOOL_IMAGE_CHECK=dates)
 H='source "$FX/kbool.sh" || exit 9'
 WIN=0
 if [[ $OSTYPE == msys* || $OSTYPE == cygwin* ]]; then WIN=1; fi
@@ -47,6 +47,18 @@ uf_run "$H"'; IA_W=5; VERBOSE_KKLASS=debug; kk.image ia 2>/dev/null; echo "w=$IA
 [[ $UF_RC == 0 && $UF_OUT == "w=5 image"$'\n'"uses=0"$'\n'"src=0"$'\n'"f=0 gone" ]]
 uf_check "an image start: the hook sees the caller's preset; the units count as loaded (kk.uses and a re-source are no-ops; --forget works)" $?
 
+# (this file runs KBOOL_IMAGE_CHECK=dates throughout, so that its cases mean
+# the same on every runtime; the other modes: 023_ImageModes.sh. Here once
+# the runtime's default: stat on POSIX, dates on the Windows runtimes)
+uf_run "$H"'; unset KBOOL_IMAGE_CHECK; kk.image ia; echo "rc=$? ${__KK_UNIT_PID[ia]+normal}"'
+A=$UF_OUT
+uf_run "$H"'; unset KBOOL_IMAGE_CHECK; kk.image ia; echo "rc=$? ${__KK_UNIT_PID[ia]-image}"'
+# (stat: a file changed in the second the stamps were taken makes the next
+# start one "racy" rewrite — the fixture was just built; 023_ImageModes.sh)
+[[ $UF_OUT == "rc=0 image" ]] || uf_run "$H"'; unset KBOOL_IMAGE_CHECK; kk.image ia; echo "rc=$? ${__KK_UNIT_PID[ia]-image}"'
+[[ $A == "rc=0 normal" && $UF_OUT == "rc=0 image" ]]
+uf_check "the runtime's default mode (no KBOOL_IMAGE_CHECK): a miss writes, the next start hits" $?
+
 # each dump is taken in the process that loaded (an image start vs KBOOL_IMAGE=off)
 cat > "$FX/both.sh" <<'EOF'
 source "$FX/kbool.sh" || exit 9
@@ -59,7 +71,11 @@ uf_run 'bash "$FX/both.sh" miss "$FX/miss.d"; bash "$FX/both.sh" hit "$FX/hit.d"
 [[ $UF_OUT == "cmp rc=0 " ]]
 uf_check "the state after an image start equals a normal load's (kkore's dump, canon; allow-list: frame indices, pid state, name index, caller-keyed tables, hash table) [§4, M6]" $?
 
-uf_run 'bash "$FX/both.sh" hit "$FX/hit.d"; bash "$FX/both.sh" plain "$FX/plain.d"; sed -i "s/^IA_I=.*//; s/^declare -i IA_I=\"42\"/declare -i IA_I=\"43\"/" "$FX/hit.d"; bash "$FX/cmp.sh" "$FX/plain.d" "$FX/hit.d"'
+# (the edit in bash: `sed -i` is GNU-only — BSD sed wants `-i ''`)
+uf_run 'bash "$FX/both.sh" hit "$FX/hit.d"; bash "$FX/both.sh" plain "$FX/plain.d"'
+IFS= read -r -d '' z < "$FX/hit.d" || :
+printf '%s' "${z/'declare -i IA_I="42"'/'declare -i IA_I="43"'}" > "$FX/hit.d.new" && mv -f "$FX/hit.d.new" "$FX/hit.d"
+uf_run 'bash "$FX/cmp.sh" "$FX/plain.d" "$FX/hit.d"'
 [[ $UF_OUT == 'cmp rc=1 V:IA_I before=declare -i IA_I="42"| after=declare -i IA_I="43"|' ]]
 uf_check "the compare is not vacuous: one changed value is reported with both texts" $?
 
@@ -93,25 +109,29 @@ if_imgs
 [[ $UF_RC == 0 && $UF_OUT == "kbool: image: set -a is on; a normal load (kk.uses ia)"$'\n'"rc=0" && -z $IF_IMGS ]]
 uf_check "set -a: a plain kk.uses, nothing written (every image assignment would be exported) [§3]" $?
 
-uf_run "$H"'; kk.image --rebuild ia; echo "rc=$?"; kk.image nosuch; echo "rc=$?"; kk.image; echo "rc=$?"'
-[[ $UF_OUT == "kbool: error: kk.image --rebuild: not available yet (image stage I2a-2)"$'\n'"rc=2"$'\n'"kbool: error: kk.uses: unit 'nosuch' not found"*$'\n'"rc=2"$'\n'"kbool: error: kk.uses: no unit named"$'\n'"rc=2" ]]
-uf_check "--rebuild (I2a-2) is a usage error; an unknown unit or no unit is kk.uses' own error and rc" $?
+uf_run "$H"'; kk.image --rebuild --path ia; echo "rc=$?"; kk.image --path --bogus ia; echo "rc=$?"; kk.image --forget; echo "rc=$?"; kk.image nosuch; echo "rc=$?"; kk.image; echo "rc=$?"'
+[[ $UF_OUT == "kbool: error: kk.image --path: only one of --rebuild, --forget, --path"$'\n'"rc=2"$'\n'"kbool: error: kk.image --path: unknown option '--bogus'"$'\n'"rc=2"$'\n'"kbool: error: kk.image --forget: no unit named"$'\n'"rc=2"$'\n'"kbool: error: kk.uses: unit 'nosuch' not found"*$'\n'"rc=2"$'\n'"kbool: error: kk.uses: no unit named"$'\n'"rc=2" ]]
+uf_check "usage errors (rc 2): two actions, an unknown option after one, --forget without a unit; an unknown unit or no unit is kk.uses' own error and rc" $?
 
 # ---------------------------------------------------------------------------
 kt_test_section "021: the flags (IMG-D1, IMG-D2)"
 
+rm -f "$FX"/img/*
 uf_run "$H"'; KBOOL_IMAGE_CHECK=bogus VERBOSE_KKLASS=debug kk.image ib 2>&1 | head -2'
 case $OSTYPE in msys*|cygwin*) d=dates ;; *) d=stat ;; esac
-want="kbool: image: KBOOL_IMAGE_CHECK=bogus is not stat|dates|hash; using $d"
-[[ $d == stat ]] && want+=$'\n'"kbool: image: KBOOL_IMAGE_CHECK=stat is not implemented yet; using dates"
+want="kbool: image: KBOOL_IMAGE_CHECK=bogus is not stat|dates|hash; using $d"$'\n'"kbool: image: no image "
 [[ $UF_OUT == "$want"* ]]
 uf_check "KBOOL_IMAGE_CHECK=bogus: the runtime's default ($d) and the debug line of §3" $?
 
-for v in stat hash; do
-    uf_run "$H"'; KBOOL_IMAGE_CHECK='"$v"' VERBOSE_KKLASS=debug kk.image ib 2>&1 | head -1'
-    [[ $UF_OUT == "kbool: image: KBOOL_IMAGE_CHECK=$v is not implemented yet; using dates" ]]
-    uf_check "KBOOL_IMAGE_CHECK=$v: runs as dates with a debug line (I2a-2 implements it)" $?
+rm -f "$FX"/img/*
+for v in stat hash dates; do
+    uf_run "$H"'; KBOOL_IMAGE_CHECK='"$v"' VERBOSE_KKLASS=debug kk.image ib 2>&1 | grep -c KBOOL_IMAGE_CHECK'
+    [[ $UF_OUT == 0 ]]
+    uf_check "KBOOL_IMAGE_CHECK=$v: taken as it is (no debug line about the mode; the tools are on PATH)" $?
 done
+if_imgs
+[[ $IF_IMGS == ib-*.img\ ib-*.img\ ib-*.img ]]
+uf_check "the three modes are three keys: three image files [§7.1, IMG-D1]" $?
 
 uf_run "$H"'; KBOOL_IMAGE_CHECK=dates VERBOSE_KKLASS=debug kk.image ib 2>&1 | grep -c "KBOOL_IMAGE_CHECK"; KBOOL_IMAGE_CHAIN=maybe VERBOSE_KKLASS=debug kk.image ib 2>&1 | head -1; KBOOL_IMAGE_CHAIN=off VERBOSE_KKLASS=debug kk.image ib 2>&1 | grep -c CHAIN'
 [[ $UF_OUT == "0"$'\n'"kbool: image: KBOOL_IMAGE_CHAIN=maybe is not on|off; using on"$'\n'"0" ]]
@@ -121,13 +141,13 @@ rm -f "$FX"/img/*
 for p in "" "KBOOL_VERSION=9.9.9;" "VERBOSE_KKLASS=quiet;" "KBOOL_IMAGE_CHECK=stat;"; do uf_run "$H; $p"' kk.image ib'; done
 if_imgs
 n=0; for f in $IF_IMGS; do n=$(( n + 1 )); done
-REFS=$(cat "$FX"/img/*.ref)
-[[ $UF_RC == 0 && $n == 3 && $IF_IMGS == ib-*.img\ ib-*.img\ ib-*.img ]]
-uf_check "KBOOL_VERSION and VERBOSE_KKLASS are keyed: other file names; KBOOL_IMAGE_CHECK=stat runs as dates — the effective mode is keyed, the same file (3 images) [§7.1]" $?
+want=4
+SUMS=$(cksum "$FX"/img/*.img)
+[[ $UF_RC == 0 && $n == "$want" ]]
+uf_check "KBOOL_VERSION and VERBOSE_KKLASS are keyed: other file names; KBOOL_IMAGE_CHECK=stat is another file unless it is the default ($want images) [§7.1]" $?
 for p in "" "KBOOL_VERSION=9.9.9;" "VERBOSE_KKLASS=quiet;" "KBOOL_IMAGE_CHECK=stat;"; do uf_run "$H; $p"' kk.image ib'; done
-if_imgs
-[[ $(cat "$FX"/img/*.ref) == "$REFS" && $IF_IMGS == ib-*.img\ ib-*.img\ ib-*.img ]]
-uf_check "each of those images is a hit for its own key (no image rewritten: the reference nonces are the same)" $?
+[[ $(cksum "$FX"/img/*.img) == "$SUMS" ]]
+uf_check "each of those images is a hit for its own key (no image rewritten)" $?
 
 uf_run "$H"'; kk.uses --optional nosuch; VERBOSE_KKLASS=debug kk.image ia 2>&1 | grep "no image written"'
 [[ $UF_OUT == "kbool: image: no image written: a unit was used before this load (__KK_UNIT_USED=nosuch): no image of a fresh start can be made" ]]
@@ -135,6 +155,71 @@ uf_check "a unit used before (kk.project closed, __KK_UNIT_USED): no image (it w
 uf_run "$H"'; kk.image ib; kk.unit --forget ib; VERBOSE_KKLASS=debug kk.image ib 2>&1 | grep "no image written"'
 [[ $UF_OUT == "kbool: image: no image written: a unit was used before this load"* ]]
 uf_check "a unit forgotten and loaded again in one process: no image of that second load" $?
+
+# ---------------------------------------------------------------------------
+kt_test_section "021: --path, --forget, --rebuild, --optional (§3)"
+
+rm -f "$FX"/img/*
+uf_run "$H"'; kk.image --path; echo "rc=$?"; kk.image --path ia; echo "rc=$?"; KBOOL_IMAGE=off kk.image --path ia; echo "rc=$?"'
+[[ $UF_OUT == "$FX/img"$'\n'"rc=0"$'\n'"$FX/img/ia-"????????".img"$'\n'"rc=1"$'\n'"rc=1" ]]
+uf_check "--path: without units the folder (rc 0); with units the path this start would use, rc 1 while there is none; KBOOL_IMAGE=off: nothing, rc 1" $?
+P1=${UF_OUT#*$'\n'*$'\n'}; P1=${P1%%$'\n'*}
+uf_run "$H"'; kk.image ia; kk.image --path ia; echo "rc=$?"'
+[[ $UF_OUT == "rc=1" ]]
+uf_check "--path after the units are loaded: not applicable here, nothing printed, rc 1" $?
+uf_run "$H"'; kk.image --path ia; echo "rc=$? ${__KK_UNITS[ia]-notloaded}"'
+[[ $UF_OUT == "$P1"$'\n'"rc=0 notloaded" && -f $P1 ]]
+uf_check "--path once the image is written: the same path, rc 0 (valid); nothing is loaded" $?
+uf_run "$H"'; KBOOL_IMAGE_CHECK=hash; kk.image --path ia; echo "rc=$?"'
+[[ $UF_OUT == "$FX/img/ia-"????????".img"$'\n'"rc=1" && ${UF_OUT%%$'\n'*} != "$P1" ]]
+uf_check "--path follows the key (another mode: another path, none yet: rc 1)" $?
+if_age "$P1" 3600
+touch "$FX/kcl/ib/ib.sh"
+uf_run "$H"'; kk.image --path ia; echo "rc=$?"'
+[[ $UF_OUT == "$P1"$'\n'"rc=1" ]]
+uf_check "--path of a stale image: the same path, rc 1" $?
+touch -t 202001010000 "$FX/kcl/ib/ib.sh"
+
+for v in hash stat dates; do uf_run "$H"'; KBOOL_IMAGE_CHECK='"$v"' kk.image ia'; done
+uf_run "$H"'; KBOOL_IMAGE_CHECK=dates kk.image ib'
+printf '%s noted\n' "$EPOCHSECONDS" > "${P1%.img}.hold"
+: > "$FX/img/ia2-12345678.img"; : > "$FX/img/ia-b-12345678.img"
+uf_run "$H"'; VERBOSE_KKLASS=debug kk.image --forget ia; echo "rc=$?"; KBOOL_IMAGE=off kk.image --forget ib; echo "rc=$?"'
+if_imgs
+[[ $UF_OUT == "kbool: image: --forget: 5 file(s) of 'ia' removed from $FX/img"$'\n'"rc=0"$'\n'"rc=0" \
+   && $IF_IMGS == "ia-b-12345678.img ia2-12345678.img" && ! -e ${P1%.img}.hold ]]
+uf_check "--forget ia: its images of every key (three modes), its .ref and .hold go — not another request's (ia2, ia-b); rc 0; it works under KBOOL_IMAGE=off too (ib gone)" $?
+rm -f "$FX"/img/*
+
+DBG='VERBOSE_KKLASS=debug'                # (VERBOSE_KKLASS is keyed: the same value throughout)
+uf_run "$H; $DBG"'; kk.image ia 2>/dev/null'
+REF1=$(cat "$FX"/img/ia-*.ref)
+uf_run "$H; $DBG"'; kk.image --rebuild ia 2>&1 | grep -v profile; echo "rc=${PIPESTATUS[0]} ${__KK_UNITS[ia]+loaded}"'
+[[ $UF_OUT == "kbool: image: --rebuild: a normal load, then an image"$'\n'"kbool: image: wrote $FX/img/ia-"*".img"$'\n'"rc=0 " \
+   && $(cat "$FX"/img/ia-*.ref) != "$REF1" ]]
+uf_check "--rebuild with a valid image: a normal load, the image written again (a new nonce), rc 0" $?
+for f in "$FX"/img/ia-*.img; do printf '%s test\n' "$EPOCHSECONDS" > "${f%.img}.hold"; done
+uf_run "$H; $DBG"'; kk.image --rebuild ia 2>&1 | grep -c wrote'
+[[ $UF_OUT == 1 && -z $(ls "$FX"/img/*.hold 2>/dev/null) ]]
+uf_check "--rebuild clears a hold" $?
+uf_run "$H"'; kk.image --rebuild ifail; echo "rc=$?"'
+[[ $UF_OUT == "kbool: error: kk.uses: loading unit 'ifail' failed (rc=3)"$'\n'"rc=3" ]]
+uf_check "--rebuild's rc is the load's (a failing unit: its error, rc 3)" $?
+
+rm -f "$FX"/img/*
+uf_run "$H"'; VERBOSE_KKLASS=debug kk.image --optional ia ib; echo "rc=$?"'
+uf_run "$H"'; VERBOSE_KKLASS=debug kk.image --optional ia ib 2>&1; echo "rc=$?"'
+[[ $UF_OUT == "kbool: image: loaded from $FX/img/ia+ib-"*".img"$'\n'"rc=0" ]]
+uf_check "--optional goes through the image: the first start writes it, the next is a hit (rc 0) [the --optional decision]" $?
+uf_run "$H"'; VERBOSE_KKLASS=debug kk.image --optional ib ifail 2>&1 | grep -v profile; echo "rc=${PIPESTATUS[0]} ${__KK_UNITS[ib]-}"'
+[[ $UF_OUT == "kbool: image: no image "*": a normal load, then an image"$'\n'"kbool: image: no image written: the load failed (rc 3)"$'\n'"kbool: image: held for an hour: $FX/img/ib+ifail-"*".hold"$'\n'"rc=3 " ]]
+uf_check "--optional with a failing unit: kk.uses --optional's quiet rc, no image, a hold (the same start would fail again)" $?
+uf_run "$H"'; VERBOSE_KKLASS=debug kk.image --optional ib ifail 2>&1; echo "rc=$?"'
+[[ $UF_OUT == "kbool: image: no image "*"; held (the load failed (rc 3), "*" s ago); a normal load (kk.uses --optional ib ifail)"$'\n'"rc=3" ]]
+uf_check "the next start is held: a plain kk.uses --optional" $?
+uf_run "$H"'; VERBOSE_KKLASS=debug kk.image --optional ia nosuch 2>&1; echo "rc=$?"'
+[[ $UF_OUT == "kbool: image: unit 'nosuch' not found; a normal load (kk.uses --optional ia nosuch)"$'\n'"rc=2" ]]
+uf_check "--optional with a unit that is not found: a plain kk.uses --optional (quiet, rc 2)" $?
 
 # ---------------------------------------------------------------------------
 kt_test_section "021: the image folder (§7.3, IMG-D4) and root (§8.1)"
@@ -159,11 +244,11 @@ UF_ENV=(IOS=msys HOME=/home/someone)
 uf_run 'source "$FX/kbool.sh"; OSTYPE=$IOS; kk._image_lib() { return 1; }; VERBOSE_KKLASS=debug kk.image ib 2>&1 | grep -c "inside the runtime.s install folder"'
 [[ $UF_OUT == 1* ]]
 uf_check "the fallback HOME inside the runtime's install folder (an MSYS2 / Cygwin /home): the debug line says so (§8.2)" $?
-UF_ENV=(IOS=linux-gnu XDG_CACHE_HOME="$FX/loc/xdg" HOME="$FX/loc/home" LOCALAPPDATA="$FX/loc/lad")
+UF_ENV=(IOS=linux-gnu KBOOL_IMAGE_CHECK=dates XDG_CACHE_HOME="$FX/loc/xdg" HOME="$FX/loc/home" LOCALAPPDATA="$FX/loc/lad")
 uf_run "$L"
 [[ $UF_OUT == "wrote FX/loc/xdg/kbool/image/v1/ib" ]]
 uf_check "POSIX: \$XDG_CACHE_HOME/kbool/image/v1 first (LOCALAPPDATA is not read)" $?
-UF_ENV=(IOS=linux-gnu XDG_CACHE_HOME=relative/x HOME="$FX/loc/home")
+UF_ENV=(IOS=linux-gnu KBOOL_IMAGE_CHECK=dates XDG_CACHE_HOME=relative/x HOME="$FX/loc/home")
 uf_run "$L"
 [[ $UF_OUT == "wrote FX/loc/home/.cache/kbool/image/v1/ib" ]]
 uf_check "POSIX: a relative XDG_CACHE_HOME is ignored; \$HOME/.cache/kbool/image/v1" $?
@@ -183,7 +268,7 @@ UF_ENV=(KBOOL_IMAGE_DIR="$FX/loc/root")
 uf_run "$H"'; kk._image_euid() { __kk_im_euid=0; }; kk.image ib'; uf_run "$H"'; kk._image_euid() { __kk_im_euid=0; }; kk.image ib; echo "${__KK_UNIT_PID[ib]-image} $(echo "$KBOOL_IMAGE_DIR"/ib-*.img)"'
 [[ $UF_OUT == "image $FX/loc/root/ib-"*".img" ]]
 uf_check "root with KBOOL_IMAGE_DIR: images are written and read there (EUID is keyed)" $?
-UF_ENV=(KBOOL_IMAGE_DIR="$FX/img")
+UF_ENV=(KBOOL_IMAGE_DIR="$FX/img" KBOOL_IMAGE_CHECK=dates)
 
 # ---------------------------------------------------------------------------
 kt_test_section "021: trust (§8.1) and the one WARNING (IMG-D3)"
@@ -222,17 +307,22 @@ if ln -s "$FX/loc/real" "$FX/loc/link" 2>/dev/null && [[ -L $FX/loc/link ]]; the
     uf_run "$H"'; VERBOSE_KKLASS=debug kk.image ib 2>&1 | head -1'
     [[ $UF_OUT == "kbool: image: untrusted folder: the folder $FX/loc/link is a symbolic link; a normal load (kk.uses ib)" ]]
     uf_check "a symbolic link as the image folder: a plain load, nothing written (no image there: no WARNING)" $?
-    UF_ENV=(KBOOL_IMAGE_DIR="$FX/img")
+    UF_ENV=(KBOOL_IMAGE_DIR="$FX/img" KBOOL_IMAGE_CHECK=dates)
 else
     kt_test_start "a symbolic link as the image folder"
     kt_test_pass "N/A: this runtime's ln -s makes no symbolic link"
 fi
+# (POSIX only: on the Windows runtimes chmod does not take effect, so the case
+# would pass without testing anything; on POSIX the writer's first temp file
+# failed with "Permission denied" on stderr until I2a-2 — CI run 45467673135)
 if (( ! WIN )); then
     chmod 000 "$FX/img" 2>/dev/null
-    uf_run "$H"'; kk.unit --forget ib 2>/dev/null; kk.image ia; echo "rc=$?"'
+    uf_run "$H"'; kk.unit --forget ib 2>/dev/null; kk.image ia; echo "rc=$?"; kk.image --forget ia; echo "rc=$?"'
+    A=$UF_OUT
+    uf_run "$H"'; KBOOL_IMAGE_CHECK=stat kk.image ia; echo "rc=$?"; KBOOL_IMAGE_CHECK=hash kk.image ib; echo "rc=$?"'
     chmod 755 "$FX/img"
-    [[ $UF_OUT == "rc=0" ]]
-    uf_check "an unwritable image folder: silent, a normal load, rc 0 (IMG-D3)" $?
+    [[ $A == "rc=0"$'\n'"rc=0" && $UF_OUT == "rc=0"$'\n'"rc=0" ]]
+    uf_check "an unwritable image folder: silent (each mode, --forget too), a normal load, rc 0 (IMG-D3)" $?
 fi
 
 kt_test_log "021_Image.sh completed"

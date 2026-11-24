@@ -71,42 +71,99 @@
 #                           hook function are in "Settings hooks" below.
 #   kk.localeDefault        export LC_CTYPE=C.UTF-8 when none of LC_ALL, LC_CTYPE,
 #                           LANG is set non-empty; else nothing. rc 0.
-#   kk.image UNIT...        a load image (kklass/docs/dev/IMAGE_PLAN.md): as
-#                           `kk.uses UNIT...` (the same units, the same rc), but
-#                           when a valid saved image of this load exists it is
-#                           sourced instead (then the settings hooks of its units
-#                           run, in __KK_UNIT_SETTINGS order) — fork-free; else a
-#                           normal load, after which kkore/kimage.sh writes the
-#                           image for the next start. Any doubt is a normal load.
+#   kk.image [--optional] UNIT...  a load image (kklass/docs/dev/IMAGE_PLAN.md):
+#                           as `kk.uses [--optional] UNIT...` (the same units, the
+#                           same rc), but when a valid saved image of this load
+#                           exists it is sourced instead (then the settings hooks
+#                           of its units run, in __KK_UNIT_SETTINGS order) — rc 0;
+#                           else a normal load, after which kkore/kimage.sh writes
+#                           the image for the next start. Any doubt is a normal
+#                           load. --optional goes through the image too (a load
+#                           whose optional units all loaded is a plain load's
+#                           state); a failed optional unit is kk.uses' quiet rc,
+#                           no image, a hold.
+#   kk.image --rebuild [--optional] UNIT...  a normal load, then the image
+#                           written even when the old one is valid; clears a
+#                           hold. rc = the load's.
+#   kk.image --forget UNIT...  remove this request's images, .ref files, holds
+#                           (every key) and dead temps from the image folder (a
+#                           trusted one; also under KBOOL_IMAGE=off). rc 0; 2
+#                           without a unit.
+#   kk.image --path [UNIT...]  print the image path this start would use
+#                           (without units: the folder). rc 0 valid (the folder:
+#                           trusted); 1 none, stale, refused, held, not
+#                           applicable (nothing printed when there is no path);
+#                           2 a usage error (two actions, an unknown option).
 #
-# Load images (stage I2a-1 of the plan: the first load of a script only, the
-# `dates` check). Flags, read on every call:
+# Load images (stage I2a of the plan: unchained — the first load of a script).
+# Flags, read on every call:
 #   KBOOL_IMAGE=off|0       every kk.image is a plain kk.uses.
 #   KBOOL_IMAGE_DIR=DIR     the image folder (else, on Linux / macOS / BSD,
 #                           $XDG_CACHE_HOME/kbool/image/v1 or ~/.cache/kbool/image/v1;
 #                           on Git-bash / MSYS2 / Cygwin $LOCALAPPDATA/…, else
 #                           $USERPROFILE/AppData/Local/…, else ~/.cache/…). Root
 #                           (EUID 0) uses images only under KBOOL_IMAGE_DIR.
-#   KBOOL_IMAGE_CHECK=stat|dates|hash  how a changed file is noticed; only
-#                           `dates` exists yet (every loaded file, kbool.sh, kkore
-#                           and kklass.sh older than the image's reference file;
-#                           KBOOL_VERSION is in the key), the others run as dates.
+#   KBOOL_IMAGE_CHECK=stat|dates|hash  how a changed file is noticed (the
+#                           stamped files: every file of the load, kbool.sh,
+#                           kkore, kklass.sh). Default stat on Linux / macOS /
+#                           BSD, dates on Git-bash / MSYS2 / Cygwin; another
+#                           value -> the default and a debug line. The
+#                           EFFECTIVE mode is keyed (switching modes uses another
+#                           image).
+#                           stat:  ONE `stat` per start (GNU -c '%s %Y %Z %i %u
+#                                  %a', else BSD -f '%z %m %c %i %u %Lp', the
+#                                  flavour probed by the writer as kcl TPath does
+#                                  and kept in the image) — size, mtime, ctime,
+#                                  inode, owner, mode; on POSIX also refuses a
+#                                  group- or world-writable image or image folder
+#                                  (the WARNING when an image exists; nothing
+#                                  written otherwise).
+#                           dates: no fork — every stamped file older than the
+#                                  image's NAME.ref, made before its load; blind
+#                                  to a same-size edit with the old mtime (cp -p,
+#                                  an old-dated archive): KBOOL_VERSION is keyed
+#                                  for releases.
+#                           hash:  ONE `cksum` per start (content only: touch is
+#                                  no change).
+#                           stat / cksum not on PATH, or a stat that takes
+#                           neither -c nor -f (the writer finds that out and
+#                           leaves FOLDER/stat.hold for an hour): runs as dates.
 #   KBOOL_IMAGE_CHAIN=on|off  parsed; for now any unit already loaded (but kbool's
 #                           own) makes kk.image a plain kk.uses.
 # Also a plain kk.uses: inside a unit's load or a settings hook, under `set -a`,
 # no trusted folder (every level from the base down a folder this user owns, not
-# a symbolic link; an existing image file that fails a check gets ONE WARNING
-# per process). VERBOSE_KKLASS=debug prints a `kbool: image: …` line for every
-# reason. An image holds this call's units: their functions, the variables they
-# created (readonly flags last), their kklass tables and their kkore
-# registration (last, with the earlier value of every kkore slot it changes).
-# Never held: kbool.sh's state, settings hook variables (the hooks run again),
-# exports, __kk_ft, the name index and caller-keyed tables, __KK_UNIT_PID (pid
-# state; absent after an image start, which nothing reads for a loaded unit),
-# shell-owned variables, traps, options, aliases, umask. A load that changes
-# exports, traps, options, aliases, umask, function attributes or an existing
-# function or (non-kkore) variable outside the hooks gets no image; so does a
-# load after another unit was used (or forgotten) in this shell.
+# a symbolic link or junction; an existing image file that fails a check gets
+# ONE WARNING per process). VERBOSE_KKLASS=debug prints a `kbool: image: …`
+# line for every reason. An image holds this call's units: their functions,
+# the variables they created (readonly flags last), their kklass tables and
+# their kkore registration (last, with the earlier value of every kkore slot
+# it changes). Never held: kbool.sh's state, settings hook variables (the hooks
+# run again), exports, __kk_ft, the name index and caller-keyed tables,
+# __KK_UNIT_PID (pid state; absent after an image start, which nothing reads
+# for a loaded unit), shell-owned variables, traps, options, aliases, umask,
+# the hash table, jobs, descriptors.
+# No image (a refusal) when the load fails (a failed --optional unit too);
+# changes exports, traps, options, aliases, umask, function attributes, the
+# hash table (unless its settings hooks make the change: they run on every
+# start), an existing function or (non-kkore) variable outside the hooks;
+# starts a background job or a coprocess; leaves a file descriptor open or
+# closes one (kklass's pair excepted); a stamped file has a future mtime; a
+# function holds a CR byte this parser drops that kklass's kk._fn_text_cr
+# cannot rewrite; bash < 5.2 and a function text with `&> "$` (IMG-D9); or a
+# unit was used (or forgotten) before in this shell.
+# Holds (FOLDER/NAME.hold, `TIME REASON`): a refusal writes one, and so does
+# an image written less than 10 minutes before that is stale again or fails
+# on its start (it is undone, then removed). While a hold is younger than an
+# hour every start that misses is a plain kk.uses with no write (one -f);
+# --rebuild and --forget clear it. Silent (no hold) when the folder cannot be
+# made or written, a write or rename fails (a native process holding the
+# image: the old image stays), or a stamped file changes during the load.
+# Pruning, on each write, with ONE rm: images whose KBOOL_HOME is gone (this
+# runtime's), older than 30 days or unreadable; the oldest beyond 8 per
+# (request, prior set), 16 per request name, 64 or 256 MB per folder; holds
+# older than an hour; orphan .ref files; temps whose writer's pid is gone. A
+# writer's own temps go on every exit path (an EXIT trap covers a load that
+# ends the script under `set -e`).
 # The config file format and the lookup chain (KBOOL_CONFIG -> project -> user ->
 # system -> built-in) are described at the "Configuration" section below.
 #
@@ -133,7 +190,8 @@
 # silenced only by VERBOSE_KKLASS=quiet (a loader error is a compile error, not a
 # member's rc-1 miss — kcl/README.md 1.2 does not apply to it).
 #
-# Everything here is fork-free. All locals carry the reserved __kk_ prefix: bash
+# Everything here is fork-free (but kk.image's one stat / cksum in those check
+# modes, and its holds written outside the writer). All locals carry the reserved __kk_ prefix: bash
 # scopes dynamically, and a unit loaded by kk.uses runs inside kk.uses, so its
 # file-scope code would otherwise see (and clobber) the loader's variables (C11).
 
@@ -1339,43 +1397,72 @@ kk._uses() {
 
 # ---------------------------------------------------------------------------
 # Load images (kklass/docs/dev/IMAGE_PLAN.md; the header's "Load images").
-# The hit path lives here (it needs the unit tables); the writer, the undo and
-# the state dump are kkore/kimage.sh, sourced only on a miss or a failed start
-# (kk._image_lib). Locals: __kk_im_* in kk.image (the helpers write them), the
-# image header's __kk_img_* in kk._image_hit, which sources the image; every
-# name on the stack while kimage.sh dumps the state starts with __kk_im.
-# Stage I2a-1: only the unchained `dates` path; the I2a-2 hooks are marked
-# "I2a-2".
+# The hit path lives here (it needs the unit tables); the writer, the undo,
+# pruning, --forget and the state dump are kkore/kimage.sh, sourced only on a
+# miss or a failed start (kk._image_lib). Locals: __kk_im_* in kk.image (the
+# helpers write them), the image header's __kk_img_* in kk._image_hit, which
+# sources the image; every name on the stack while kimage.sh dumps the state
+# starts with __kk_im. Unchained only (stage I2a): chaining is I2b.
 
-# kk.image [UNIT...] — see the header.
+# kk.image [--rebuild | --forget | --path] [--optional] [UNIT...] — see the header.
 kk.image() {
     if [[ ${__KK_LOADED[@]@a} != A ]]; then
         [[ -z ${KBOOL_HOME-} || ! -f ${KBOOL_HOME-}/kbool.sh ]] || source "$KBOOL_HOME/kbool.sh" || return
         [[ ${__KK_LOADED[@]@a} == A ]] || { printf 'kbool: error: kk.image %s: kbool.sh is not loaded\n' "$*" >&2; return 2; }
     fi
     local __kk_im_caller=${BASH_SOURCE[1]-} __kk_im_why="" __kk_im_mode=dates __kk_im_euid=0 __kk_im_dir="" \
-          __kk_im_mk=0 __kk_im_bad="" __kk_im_lv="" __kk_im_img="" __kk_im_ref="" __kk_im_key="" __kk_im_name="" \
-          __kk_im_h="" __kk_im_cdir="" __kk_im_req="" __kk_im_rc=0
-    local -a __kk_im_reqf=() __kk_im_reqk=()
+          __kk_im_mk=0 __kk_im_bad="" __kk_im_lv="" __kk_im_ml="" __kk_im_img="" __kk_im_ref="" __kk_im_key="" \
+          __kk_im_name="" __kk_im_h="" __kk_im_cdir="" __kk_im_req="" __kk_im_rn="" __kk_im_files="" \
+          __kk_im_fam=- __kk_im_act="" __kk_im_from="" __kk_im_wt="" __kk_im_stale=0 __kk_im_modes=0 \
+          __kk_im_so="" __kk_im_hr="" __kk_im_rc=0
+    local -a __kk_im_reqf=() __kk_im_reqk=() __kk_im_args=()
     kk._image_prep "$@" || __kk_im_rc=$?
     if (( __kk_im_rc == 2 )); then return 2; fi
+    case $__kk_im_act in
+        path) kk._image_path; return ;;
+        forget)
+            if (( __kk_im_rc == 0 )) && kk._image_lib; then kk._img_forget; return 0; fi
+            kk._image_dbg "--forget: ${__kk_im_why:-kkore/kimage.sh cannot be loaded}; nothing deleted"
+            return 0 ;;
+    esac
     if (( __kk_im_rc == 0 )); then
-        kk._image_hit || __kk_im_rc=$?
-        case $__kk_im_rc in
-            0) return 0 ;;
-            1)  # a miss: a normal load, then the image for the next start
-                kk._image_dbg "$__kk_im_why: a normal load, then an image"
-                if kk._image_lib; then
-                    kk._img_write "$@"
-                    return
+        if [[ $__kk_im_act == rebuild ]]; then
+            __kk_im_why="--rebuild"
+            __kk_im_rc=1
+        else
+            kk._image_hit || __kk_im_rc=$?
+            if (( __kk_im_rc == 0 )); then return 0; fi
+            # a miss (1) or an undone start (3): a hold says "no write" (§7.5);
+            # an image written less than 10 minutes ago that is stale again
+            # (H2) or failed on its start (a damaged image is not undone on
+            # every start) gets one instead of a rewrite
+            if (( __kk_im_rc != 2 )); then
+                if kk._image_held; then
+                    __kk_im_why+="; held ($__kk_im_hr)"
+                    __kk_im_rc=2
+                elif [[ -n $__kk_im_wt && $__kk_im_wt != *[!0-9]* && ${#__kk_im_wt} -le 12 ]] \
+                     && (( (__kk_im_rc == 3 || __kk_im_stale) && EPOCHSECONDS >= 10#$__kk_im_wt && EPOCHSECONDS - 10#$__kk_im_wt < 600 )); then
+                    __kk_im_why+="; the image was written $(( EPOCHSECONDS - 10#$__kk_im_wt )) s ago: a hold for an hour"
+                    if (( __kk_im_rc == 3 )); then
+                        kk._image_hold "an image written less than 10 minutes before failed on its start" "" "" drop
+                    else
+                        kk._image_hold "an image written less than 10 minutes before was stale again"
+                    fi
+                    __kk_im_rc=2
                 fi
-                __kk_im_why="kkore/kimage.sh cannot be loaded" ;;
-            3)  # the image was undone (kk._img_undo): the normal load, under `if` (§8.3)
-                if kk._uses "$__kk_im_caller" "$@"; then return 0; else __kk_im_rc=$?; return "$__kk_im_rc"; fi ;;
-        esac
+            fi
+        fi
+        if (( __kk_im_rc != 2 )); then
+            kk._image_dbg "$__kk_im_why: a normal load, then an image"
+            if kk._image_lib; then
+                kk._img_write
+                return
+            fi
+            __kk_im_why="kkore/kimage.sh cannot be loaded"
+        fi
     fi
-    kk._image_dbg "${__kk_im_why:-not applicable}; a normal load (kk.uses $*)"
-    kk._uses "$__kk_im_caller" "$@"
+    kk._image_dbg "${__kk_im_why:-not applicable}; a normal load (kk.uses ${__kk_im_args[*]})"
+    kk._uses "$__kk_im_caller" "${__kk_im_args[@]}"
 }
 
 # kk._image_dbg MSG — the `kbool: image: MSG` line, under VERBOSE_KKLASS=debug only.
@@ -1410,32 +1497,54 @@ kk._image_hook() {
     return "$__kk_ih_rc"
 }
 
-# kk._image_hash STR -> __kk_im_h: FNV-1a (32 bit, 8 hex digits) over the
-# characters of STR (a character's code in the current locale; the key's
-# string compare decides validity, the hash only names the file).
+# kk._image_hash STR [VAR] -> VAR (default __kk_im_h): FNV-1a (32 bit, 8 hex
+# digits) over the characters of STR (a character's code in the current
+# locale; the key's string compare decides validity, the hash only names).
 kk._image_hash() {
     local __kk_ih_s=$1 __kk_ih_h=2166136261 __kk_ih_i __kk_ih_c __kk_ih_n=${#1}
     for (( __kk_ih_i = 0; __kk_ih_i < __kk_ih_n; __kk_ih_i++ )); do
         printf -v __kk_ih_c %d "'${__kk_ih_s:__kk_ih_i:1}"
         __kk_ih_h=$(( ((__kk_ih_h ^ __kk_ih_c) * 16777619) & 4294967295 ))
     done
-    printf -v __kk_im_h %08x "$__kk_ih_h"
+    printf -v "${2:-__kk_im_h}" %08x "$__kk_ih_h"
 }
 
-# kk._image_prep ARGS — the flags, the applicability, the folder, the request
-# and the key (§3, §7.1): fills kk.image's locals. rc 0 applicable; 1 not (a
-# plain kk.uses, __kk_im_why says why); 2 a usage error (printed).
+# kk._image_prep ARGS — the options, the flags, the applicability, the folder,
+# the request and the key (§3, §7.1): fills kk.image's locals. rc 0
+# applicable; 1 not (a plain kk.uses, __kk_im_why says why); 2 a usage error
+# (printed). --forget needs only the folder and the request name; --path
+# without units only the folder.
 kk._image_prep() {
-    local __kk_ip_v __kk_ip_d __kk_ip_a __kk_ip_f __kk_ip_nm __kk_ip_k __kk_ip_fam=- __kk_ip_files="" __kk_ip_po \
+    local __kk_ip_v __kk_ip_d __kk_ip_a __kk_ip_f __kk_ip_nm __kk_ip_k __kk_ip_o=0 \
           __kk_hk="" __kk_found __kk_d __kk_n
+    while [[ ${1-} == --* ]]; do
+        case $1 in
+            --rebuild|--forget|--path)
+                if [[ -n $__kk_im_act ]]; then kk._unit_err "kk.image $1: only one of --rebuild, --forget, --path"; return 2; fi
+                __kk_im_act=${1#--} ;;
+            --optional) __kk_ip_o=1 ;;
+            *)  if [[ -n $__kk_im_act ]]; then kk._unit_err "kk.image --$__kk_im_act: unknown option '$1'"; return 2; fi
+                break ;;
+        esac
+        shift
+    done
+    if (( __kk_ip_o )); then __kk_im_args=(--optional "$@"); else __kk_im_args=("$@"); fi
+    for __kk_ip_a; do __kk_im_req+=$__kk_ip_a$__KK_SEP; done
+    if [[ $__kk_im_act == forget ]]; then
+        if (( ! $# )); then kk._unit_err "kk.image --forget: no unit named"; return 2; fi
+        kk._image_reqname
+        kk._image_dir
+        return
+    fi
     case ${KBOOL_IMAGE-} in
         off|0) __kk_im_why="KBOOL_IMAGE=$KBOOL_IMAGE"; return 1 ;;
     esac
+    if [[ $__kk_im_act == path ]] && (( ! $# )); then
+        kk._image_dir
+        return
+    fi
     case ${1-} in
-        --rebuild|--forget|--path)
-            kk._unit_err "kk.image $1: not available yet (image stage I2a-2)"
-            return 2 ;;
-        --*) __kk_im_why="option $1"; return 1 ;;          # --optional: a plain kk.uses (I2a-2)
+        --*) __kk_im_why="option $1"; return 1 ;;
         '') __kk_im_why="no unit named"; return 1 ;;
     esac
     if [[ $- == *a* ]]; then __kk_im_why="set -a is on"; return 1; fi
@@ -1443,7 +1552,7 @@ kk._image_prep() {
     if [[ -n ${__KK_SETTINGS_RUN-} ]] && kk._settings_hook 1; then
         __kk_im_why="inside the settings hook $__kk_hk"; return 1
     fi
-    # KBOOL_IMAGE_CHECK (IMG-D1): the effective mode is keyed. I2a-1 has `dates` only.
+    # KBOOL_IMAGE_CHECK (IMG-D1): the effective mode is keyed
     case $OSTYPE in msys*|cygwin*) __kk_ip_d=dates ;; *) __kk_ip_d=stat ;; esac
     __kk_ip_v=${KBOOL_IMAGE_CHECK-}
     case $__kk_ip_v in
@@ -1452,10 +1561,6 @@ kk._image_prep() {
         *)  kk._image_dbg "KBOOL_IMAGE_CHECK=$__kk_ip_v is not stat|dates|hash; using $__kk_ip_d"
             __kk_ip_v=$__kk_ip_d ;;
     esac
-    if [[ $__kk_ip_v != dates ]]; then
-        kk._image_dbg "KBOOL_IMAGE_CHECK=$__kk_ip_v is not implemented yet; using dates"     # I2a-2
-        __kk_ip_v=dates
-    fi
     __kk_im_mode=$__kk_ip_v
     # KBOOL_IMAGE_CHAIN (IMG-D2): parsed; only the unchained behaviour exists (I2b)
     case ${KBOOL_IMAGE_CHAIN-} in
@@ -1470,6 +1575,28 @@ kk._image_prep() {
     done
     if (( ${#__KK_UNIT_FILES[@]} )); then __kk_im_why="a file is loaded by path already (chained images: I2b)"; return 1; fi
     kk._image_dir || return 1
+    # a mode without its tool runs as `dates` (§7.6): `stat` / `cksum` not on
+    # PATH (type -P: no fork), or a `stat` that takes neither -c nor -f — the
+    # writer found that out and left FOLDER/stat.hold, valid for an hour
+    case $__kk_im_mode in
+        stat)
+            if ! type -P stat >/dev/null 2>&1; then
+                __kk_im_from="stat is not on PATH"
+            elif kk._image_hfile "$__kk_im_dir/stat.hold"; then
+                __kk_im_from="stat.hold ($__kk_im_hr)"
+            fi ;;
+        hash)
+            if ! type -P cksum >/dev/null 2>&1; then __kk_im_from="cksum is not on PATH"; fi ;;
+    esac
+    if [[ -n $__kk_im_from ]]; then
+        kk._image_dbg "KBOOL_IMAGE_CHECK=$__kk_im_mode: $__kk_im_from; using dates"
+        __kk_im_mode=dates
+    fi
+    # the permission bits are checked in `stat` mode, but not on the Windows
+    # runtimes, whose modes are no guard (§8.2)
+    if [[ $__kk_im_mode == stat ]]; then
+        case $OSTYPE in msys*|cygwin*) ;; *) __kk_im_modes=1 ;; esac
+    fi
     # the request, resolved as kk._uses resolves it (U12, U43)
     case $__kk_im_caller in
         ''|main|environment)
@@ -1505,32 +1632,45 @@ kk._image_prep() {
         if [[ -n ${__KK_UNITS[$__kk_ip_nm]+x} ]]; then __kk_im_why="unit '$__kk_ip_nm' is loaded already"; return 1; fi
         __kk_im_reqf+=("$__kk_ip_f")
         kk._unit_lexnorm "$__kk_ip_f"
-        __kk_ip_files+=$__kk_n$__KK_SEP
-        __kk_im_req+=$__kk_ip_a$__KK_SEP
+        __kk_im_files+=$__kk_n$__KK_SEP
     done
-    # the key (§7.1): every row but the stamps
     case $OSTYPE in
         msys*|cygwin*)      # the runtime family (I1b critic M1): MSYS_NT, MINGW64_NT, CYGWIN_NT
-            __kk_ip_fam=""
-            { IFS=' ' read -r __kk_ip_fam __kk_ip_v < /proc/version; } 2>/dev/null || :
-            __kk_ip_fam=${__kk_ip_fam%%-*}
-            __kk_ip_fam=${__kk_ip_fam:-?} ;;
+            __kk_im_fam=""
+            { IFS=' ' read -r __kk_im_fam __kk_ip_v < /proc/version; } 2>/dev/null || :
+            __kk_im_fam=${__kk_im_fam%%-*}
+            __kk_im_fam=${__kk_im_fam:-?} ;;
     esac
-    __kk_ip_po="extglob:0 expand_aliases:0"
-    if [[ :$BASHOPTS: == *:extglob:* ]]; then __kk_ip_po=${__kk_ip_po/extglob:0/extglob:1}; fi
-    if [[ :$BASHOPTS: == *:expand_aliases:* ]]; then __kk_ip_po=${__kk_ip_po/aliases:0/aliases:1}; fi
+    kk._image_key
+}
+
+# kk._image_reqname — __kk_im_rn: the request (__kk_im_req, <US>-joined)
+# made a file name stem: `+` between the units, every other byte outside
+# [A-Za-z0-9._+-] an `_`, at most 64 characters.
+kk._image_reqname() {
+    local __kk_ir_v=${__kk_im_req%"$__KK_SEP"}
+    __kk_ir_v=${__kk_ir_v//"$__KK_SEP"/+}
+    __kk_ir_v=${__kk_ir_v//[!A-Za-z0-9._+-]/_}
+    __kk_im_rn=${__kk_ir_v:0:64}
+}
+
+# kk._image_key — the key (§7.1, every row but the stamps; the EFFECTIVE check
+# mode) -> __kk_im_key, and the file names __kk_im_name / _img / _ref. The
+# writer calls it again when its `stat` turns out unusable (-> dates).
+kk._image_key() {
+    local __kk_ik_po="extglob:0 expand_aliases:0" __kk_n
+    if [[ :$BASHOPTS: == *:extglob:* ]]; then __kk_ik_po=${__kk_ik_po/extglob:0/extglob:1}; fi
+    if [[ :$BASHOPTS: == *:expand_aliases:* ]]; then __kk_ik_po=${__kk_ik_po/aliases:0/aliases:1}; fi
     kk._unit_lexnorm "$KBOOL_HOME"
     printf -v __kk_im_key '%s\n' "kbool image v1" "home=$__kk_n" "bash=$BASH" "version=$BASH_VERSION" \
-        "ostype=$OSTYPE" "machtype=$MACHTYPE" "euid=$__kk_im_euid" "family=$__kk_ip_fam" \
-        "parse=$__kk_ip_po compat:${BASH_COMPAT-}" "check=$__kk_im_mode" "kbool=${KBOOL_VERSION-}" \
-        "request=$__kk_im_req" "files=$__kk_ip_files" "prior=" \
+        "ostype=$OSTYPE" "machtype=$MACHTYPE" "euid=$__kk_im_euid" "family=$__kk_im_fam" \
+        "parse=$__kk_ik_po compat:${BASH_COMPAT-}" "check=$__kk_im_mode" "kbool=${KBOOL_VERSION-}" \
+        "request=$__kk_im_req" "files=$__kk_im_files" "prior=" \
         "unitpath=${__KK_CFG[unitpath]-}" "defines=${__KK_CFG[defines]-}" "debug=${__KK_CFG[debug]-}" \
         "ckkdir=${__KK_CFG[ckkdir]-}" "project=${__KK_PROJECT-}" "verbose=${VERBOSE_KKLASS+=}${VERBOSE_KKLASS-}"
     kk._image_hash "$__kk_im_key"
-    __kk_ip_v=${__kk_im_req%"$__KK_SEP"}
-    __kk_ip_v=${__kk_ip_v//"$__KK_SEP"/+}
-    __kk_ip_v=${__kk_ip_v//[!A-Za-z0-9._+-]/_}
-    __kk_im_name=${__kk_ip_v:0:64}-$__kk_im_h
+    kk._image_reqname
+    __kk_im_name=$__kk_im_rn-$__kk_im_h
     __kk_im_img=$__kk_im_dir/$__kk_im_name.img
     __kk_im_ref=$__kk_im_dir/$__kk_im_name.ref
     return 0
@@ -1540,8 +1680,10 @@ kk._image_prep() {
 # trust (§8.1): every existing level from the base root down must be a folder
 # owned by this user (-O) and not a symbolic link; the first missing level
 # sets __kk_im_mk (the writer makes it under umask 077), the first failing one
-# __kk_im_bad (the reason). rc 1 (__kk_im_why) when there is no folder: no
-# base variable, or EUID 0 without KBOOL_IMAGE_DIR. Fork-free.
+# __kk_im_bad (the reason). __kk_im_ml = the levels whose permission bits
+# `stat` mode checks (KBOOL_IMAGE_DIR itself; else from kbool/ down). rc 1
+# (__kk_im_why) when there is no folder: no base variable, or EUID 0 without
+# KBOOL_IMAGE_DIR. Fork-free.
 kk._image_dir() {
     local __kk_id_r="" __kk_id_l
     kk._image_euid
@@ -1549,6 +1691,7 @@ kk._image_dir() {
         __kk_im_dir=${KBOOL_IMAGE_DIR//\\//}
         [[ $__kk_im_dir == / ]] || __kk_im_dir=${__kk_im_dir%/}
         __kk_id_l=$__kk_im_dir
+        __kk_im_ml=$__kk_im_dir
     elif [[ $__kk_im_euid == 0 ]]; then
         __kk_im_why="EUID 0: images are read and written only under KBOOL_IMAGE_DIR"; return 1
     else
@@ -1576,7 +1719,8 @@ kk._image_dir() {
         __kk_id_r=${__kk_id_r//\\//}
         __kk_id_r=${__kk_id_r%/}
         __kk_im_dir=$__kk_id_r/kbool/image/v1
-        __kk_id_l=$__kk_id_r$__KK_SEP$__kk_id_r/kbool$__KK_SEP$__kk_id_r/kbool/image$__KK_SEP$__kk_im_dir
+        __kk_im_ml=$__kk_id_r/kbool$__KK_SEP$__kk_id_r/kbool/image$__KK_SEP$__kk_im_dir
+        __kk_id_l=$__kk_id_r$__KK_SEP$__kk_im_ml
     fi
     __kk_im_lv=$__kk_id_l
     kk._image_levels
@@ -1614,16 +1758,121 @@ kk._image_warn() {
     return 0
 }
 
+# kk._image_hfile FILE — rc 0 when FILE is a hold (§7.5): a regular file of
+# this user, not a symbolic link, whose first line `TIME REASON` was written
+# less than an hour ago (by this clock); __kk_im_hr = "REASON, N s ago".
+kk._image_hfile() {
+    local __kk_ih_t="" __kk_ih_r=""
+    [[ -f $1 && ! -L $1 && -O $1 ]] || return 1
+    { IFS=' ' read -r __kk_ih_t __kk_ih_r < "$1"; } 2>/dev/null || [[ -n $__kk_ih_t ]] || return 1
+    [[ -n $__kk_ih_t && $__kk_ih_t != *[!0-9]* && ${#__kk_ih_t} -le 12 ]] || return 1
+    (( EPOCHSECONDS >= 10#$__kk_ih_t && EPOCHSECONDS - 10#$__kk_ih_t < 3600 )) || return 1
+    __kk_im_hr="$__kk_ih_r, $(( EPOCHSECONDS - 10#$__kk_ih_t )) s ago"
+    return 0
+}
+
+# kk._image_held — rc 0 when this image name has a hold younger than an hour
+# (one -f on the miss path); __kk_im_hr says which.
+kk._image_held() {
+    kk._image_hfile "$__kk_im_dir/$__kk_im_name.hold"
+}
+
+# kk._image_hold REASON [UMASK [FILE [drop]]] — write FILE (default
+# NAME.hold) as `EPOCHSECONDS REASON` under umask 077: with UMASK (the
+# caller's, known to the writer) fork-free, else in a subshell, which with
+# `drop` also removes the image and its .ref (a damaged image that failed on
+# its start is not sourced and undone again on every start of the hour).
+# Nothing in an untrusted or missing folder, or over a symbolic link. Silent.
+kk._image_hold() {
+    local __kk_ih_f=${3:-$__kk_im_dir/$__kk_im_name.hold} __kk_ih_r=${1//$'\n'/ }
+    [[ -z $__kk_im_bad && -d $__kk_im_dir && ! -L $__kk_ih_f ]] || return 0
+    if [[ -n ${2-} ]]; then
+        umask 077
+        { printf '%s %s\n' "$EPOCHSECONDS" "$__kk_ih_r" > "$__kk_ih_f"; } 2>/dev/null
+        umask "$2"
+    else
+        ( umask 077 && printf '%s %s\n' "$EPOCHSECONDS" "$__kk_ih_r" > "$__kk_ih_f"
+          if [[ ${4-} == drop ]]; then command rm -f -- "$__kk_im_img" "$__kk_im_ref"; fi ) 2>/dev/null
+    fi
+    return 0
+}
+
+# kk._image_pline LINE — the plain header line `#P<US>WTIME<US>SIZE<US>TAG<US>
+# HOME<US>PRIOR<US>MODE<US>FLAVOUR<US>N<US>FILE…` (read WITHOUT eval: the
+# `stat` mode check runs before any byte of the image does) -> the caller's
+# __kk_img_files (the N stamped files) and __kk_im_pl (the fields before them,
+# an array). rc 1 when it is not such a line.
+kk._image_pline() {
+    local - IFS=$__KK_SEP
+    local -a __kk_ip_a=()
+    set -f
+    [[ $1 == "#P$__KK_SEP"* ]] || return 1
+    __kk_ip_a=(${1#"#P$__KK_SEP"})
+    (( ${#__kk_ip_a[@]} >= 8 )) || return 1
+    [[ -n ${__kk_ip_a[7]} && ${__kk_ip_a[7]} != *[!0-9]* && ${#__kk_ip_a[7]} -le 6 \
+       && -n ${__kk_ip_a[0]} && ${__kk_ip_a[0]} != *[!0-9]* && ${#__kk_ip_a[0]} -le 12 ]] || return 1
+    (( ${#__kk_ip_a[@]} == 10#${__kk_ip_a[7]} + 8 )) || return 1
+    __kk_im_pl=("${__kk_ip_a[@]:0:8}")
+    __kk_img_files=("${__kk_ip_a[@]:8}")
+    return 0
+}
+
+# kk._image_stamp FLAVOUR FILE... -> __kk_im_so: the stamps of `stat` mode
+# (FLAVOUR gnu: stat -c '%s %Y %Z %i %u %a'; bsd: stat -f '%z %m %c %i %u %Lp')
+# or of `hash` mode (FLAVOUR hash: cksum), one line per FILE — ONE fork (the
+# command substitution runs the command itself). rc 1 when the command fails
+# or the line count is not the file count.
+kk._image_stamp() {
+    local - __kk_is_f=$1 IFS=$'\n'
+    local -a __kk_is_a=()
+    shift
+    case $__kk_is_f in
+        gnu)  __kk_im_so=$(command stat -c '%s %Y %Z %i %u %a' -- "$@" 2>/dev/null) || return 1 ;;
+        bsd)  __kk_im_so=$(command stat -f '%z %m %c %i %u %Lp' -- "$@" 2>/dev/null) || return 1 ;;
+        hash) __kk_im_so=$(command cksum -- "$@" 2>/dev/null) || return 1 ;;
+        *)    return 1 ;;
+    esac
+    set -f
+    __kk_is_a=($__kk_im_so)
+    (( ${#__kk_is_a[@]} == $# ))
+}
+
+# kk._image_lines TEXT ARRAY — the caller's ARRAY = TEXT's lines (not empty).
+kk._image_lines() {
+    local - IFS=$'\n'
+    local -n __kk_il_r=$2
+    set -f
+    __kk_il_r=($1)
+}
+
+# kk._image_wbits LINE... — rc 1 and __kk_im_why when the last field (the
+# octal permission bits of a stamp line) of a LINE is group- or
+# world-writable; the paths are __kk_im_ml's levels, then the image.
+kk._image_wbits() {
+    local __kk_iw_l __kk_iw_m __kk_iw_p=$__kk_im_ml$__KK_SEP$__kk_im_img __kk_iw_n
+    for __kk_iw_l; do
+        __kk_iw_m=${__kk_iw_l##* }
+        __kk_iw_n=${__kk_iw_p%%"$__KK_SEP"*}
+        __kk_iw_p=${__kk_iw_p#*"$__KK_SEP"}
+        if [[ -z $__kk_iw_m || $__kk_iw_m == *[!0-7]* ]] || (( 8#$__kk_iw_m & 8#022 )); then
+            __kk_im_why="$__kk_iw_n is group- or world-writable (mode ${__kk_iw_m:-?})"
+            return 1
+        fi
+    done
+    return 0
+}
+
 # kk._image_hit — the start through the image (§9): rc 0 done (the units are
 # loaded); 1 a miss (no image, another key, stale: write one); 2 not usable
 # here (untrusted, a readonly collision, the base differs: a plain kk.uses,
 # no write); 3 the image failed while sourced or a hook failed: undone (rc 3:
-# kk.uses under `if`). Fork-free.
+# kk.image loads normally and rewrites, or holds). Fork-free in `dates` mode;
+# one fork (stat / cksum) in the others.
 kk._image_hit() {
-    local __kk_img_key="" __kk_img_nonce="" __kk_img_wtime="" __kk_img_end="" __kk_hi_e __kk_hi_rc=0 \
-          __kk_hi_sink=/dev/null
+    local __kk_img_key="" __kk_img_nonce="" __kk_img_wtime="" __kk_img_end="" __kk_img_stamp="" __kk_img_stime="" __kk_img_i="" __kk_hi_e \
+          __kk_hi_rc=0 __kk_hi_sink=/dev/null
     local -a __kk_img_files=() __kk_img_edges=() __kk_img_reqf=() __kk_img_units=() __kk_img_classes=() \
-          __kk_img_vars=() __kk_img_fns=() __kk_img_ro=() __kk_img_base=() __kk_img_hooks=()
+          __kk_img_vars=() __kk_img_fns=() __kk_img_ro=() __kk_img_base=() __kk_img_hooks=() __kk_im_pl=() __kk_img_k=() __kk_img_v=()
     kk._image_check || return
     if [[ ${VERBOSE_KKLASS:-} == debug ]]; then __kk_hi_sink=/dev/stderr; fi
     if source "$__kk_im_img" 2>"$__kk_hi_sink" && [[ $__kk_img_end == "$__kk_img_nonce" ]]; then
@@ -1655,15 +1904,43 @@ kk._image_hit() {
     return 0
 }
 
+# kk._image_path — kk.image --path: print the image path this start would
+# use (without units: the folder) on stdout. rc 0 the image is valid (the
+# folder: usable); 1 none, stale, not applicable, refused or held (nothing
+# printed when there is no path); fork-free in `dates` mode.
+kk._image_path() {
+    local __kk_img_key="" __kk_img_nonce="" __kk_img_wtime="" __kk_img_end="" __kk_img_stamp="" __kk_img_stime="" __kk_hi_rc=0
+    local -a __kk_img_files=() __kk_img_edges=() __kk_img_reqf=() __kk_img_units=() __kk_img_classes=() \
+          __kk_img_vars=() __kk_img_fns=() __kk_img_ro=() __kk_img_base=() __kk_img_hooks=() __kk_im_pl=()
+    if (( __kk_im_rc != 0 )); then
+        kk._image_dbg "--path: ${__kk_im_why:-not applicable}"
+        return 1
+    fi
+    if [[ -z $__kk_im_req ]]; then
+        printf '%s\n' "$__kk_im_dir"
+        if [[ -n $__kk_im_bad ]]; then kk._image_dbg "--path: untrusted folder: $__kk_im_bad"; return 1; fi
+        return 0
+    fi
+    printf '%s\n' "$__kk_im_img"
+    kk._image_check || __kk_hi_rc=$?
+    if (( __kk_hi_rc == 0 )); then return 0; fi
+    if (( __kk_hi_rc == 1 )) && kk._image_held; then __kk_im_why+="; held ($__kk_im_hr)"; fi
+    kk._image_dbg "--path: $__kk_im_why"
+    return 1
+}
+
 # kk._image_check — kk._image_hit's checks before a byte is sourced (rc as
-# kk._image_hit's 0 / 1 / 2): trust, the header (read, then its lines run:
-# the file is trusted), the key, the request files (-ef), the dependency
-# edges (header form, §7.2), staleness (`dates`: every stamped file older
-# than NAME.ref, whose nonce is the image's), the readonly pre-check and the
-# base check (§8.3, §7.7). Its own options: nounset and nocasematch off.
+# kk._image_hit's 0 / 1 / 2): trust, the header (read; its plain line parsed;
+# in `stat` mode the one stat, whose permission bits of the folder and the
+# image are checked before the header runs; then its lines run), the key, the
+# request files (-ef), the dependency edges (header form, §7.2), staleness
+# per mode (§7.6), the readonly pre-check and the base check (§8.3, §7.7).
+# Stale reasons set __kk_im_stale; __kk_im_wt = the image's write time. Its
+# own options: nounset and nocasematch off.
 kk._image_check() {
     local - __kk_hc_1 __kk_hc_2="" __kk_hc_x __kk_hc_d __kk_hc_n __kk_hc_f __kk_hc_k \
-          __kk_hc_i __kk_hc_nc=0 __kk_hc_rc=0 __kk_found
+          __kk_hc_i __kk_hc_nc=0 __kk_hc_rc=0 __kk_hc_st="" __kk_found
+    local -a __kk_hc_a=() __kk_hc_b=()
     set +u
     if [[ $BASHOPTS == *nocasematch* ]]; then __kk_hc_nc=1; shopt -u nocasematch; fi
     kk._image__check || __kk_hc_rc=$?
@@ -1684,21 +1961,52 @@ kk._image__check() {
     elif [[ ! -O $__kk_im_img ]]; then
         kk._image_warn "owned by another user"; __kk_im_why="the image is owned by another user"; return 2
     fi
-    # line 1: `# kbool image v1 N`, N = the byte length of lines 2-5 (ASCII),
-    # read at once (a line-by-line read is slow on the MSYS-family runtimes)
-    { IFS= read -r __kk_hc_1 && [[ $__kk_hc_1 == "# kbool image v1 "[1-9]* && ${__kk_hc_1#"# kbool image v1 "} != *[!0-9]* ]] \
-      && IFS= read -r -N "${__kk_hc_1#"# kbool image v1 "}" __kk_hc_2; } < "$__kk_im_img" 2>/dev/null \
+    # line 1: `# kbool image v1 N`, N = the byte length of the header lines
+    # after it, read at once as bytes (LC_ALL=C for that read: the plain
+    # line's paths may be UTF-8; a line-by-line read is slow on the
+    # MSYS-family runtimes); a read -N that succeeds read all N
+    { IFS= read -r __kk_hc_1 && [[ $__kk_hc_1 == "# kbool image v1 "[1-9]* && ${__kk_hc_1#"# kbool image v1 "} != *[!0-9]* \
+                                   && ${#__kk_hc_1} -le 30 ]] \
+      && LC_ALL=C IFS= read -r -N "${__kk_hc_1#"# kbool image v1 "}" __kk_hc_2; } < "$__kk_im_img" 2>/dev/null \
       || { __kk_im_why="not an image of format v1, or its header is incomplete"; return 1; }
-    if (( ${#__kk_hc_2} != ${__kk_hc_1#"# kbool image v1 "} )) || [[ $__kk_hc_2 != *$'\n' ]]; then
+    if [[ $__kk_hc_2 != *$'\n' ]]; then
         __kk_im_why="the image header is incomplete"; return 1
+    fi
+    if ! kk._image_pline "${__kk_hc_2%%$'\n'*}"; then __kk_im_why="the image header is damaged"; return 1; fi
+    if [[ ${__kk_im_pl[5]} != "$__kk_im_mode" ]]; then __kk_im_why="the image has another key (check mode ${__kk_im_pl[5]})"; return 1; fi
+    for __kk_hc_f in "${__kk_img_files[@]}"; do
+        if [[ ! -f $__kk_hc_f ]]; then
+            __kk_im_why="stale: $__kk_hc_f is missing"; __kk_im_stale=1
+            __kk_im_wt=${__kk_im_pl[0]}
+            return 1
+        fi
+    done
+    # `stat` mode where the permission bits count: ONE stat over the folder
+    # levels, the image and the stamped files, its bits checked before the
+    # header runs (§8.1)
+    if (( __kk_im_modes )); then
+        kk._image__levels __kk_hc_a
+        __kk_hc_n=$(( ${#__kk_hc_a[@]} + 1 ))        # the levels + the image
+        if ! kk._image_stamp "${__kk_im_pl[6]}" "${__kk_hc_a[@]}" "$__kk_im_img" "${__kk_img_files[@]}"; then
+            __kk_im_why="stale: stat (${__kk_im_pl[6]}) failed over the stamped files"; __kk_im_stale=1
+            __kk_im_wt=${__kk_im_pl[0]}
+            return 1
+        fi
+        kk._image_lines "$__kk_im_so" __kk_hc_b
+        if ! kk._image_wbits "${__kk_hc_b[@]:0:__kk_hc_n}"; then
+            kk._image_warn "$__kk_im_why"; return 2
+        fi
+        printf -v __kk_hc_st '%s\n' "${__kk_hc_b[@]:__kk_hc_n}"
+        __kk_hc_st=${__kk_hc_st%$'\n'}
     fi
     { eval "$__kk_hc_2"; } 2>/dev/null || { __kk_im_why="the image header is damaged"; return 1; }
     if [[ $__kk_img_key != "$__kk_im_key" ]]; then __kk_im_why="the image has another key"; return 1; fi
     if [[ -z $__kk_img_nonce || $__kk_img_nonce == *[!0-9a-f]* ]]; then __kk_im_why="the image header is damaged"; return 1; fi
+    __kk_im_wt=$__kk_img_wtime
     if (( ${#__kk_img_reqf[@]} != ${#__kk_im_reqf[@]} )); then __kk_im_why="the image has another request"; return 1; fi
     for (( __kk_hc_i = 0; __kk_hc_i < ${#__kk_im_reqf[@]}; __kk_hc_i++ )); do
         if [[ ! ${__kk_img_reqf[__kk_hc_i]} -ef ${__kk_im_reqf[__kk_hc_i]} ]]; then
-            __kk_im_why="the request resolves to another file than the image's"; return 1
+            __kk_im_why="stale: the request resolves to another file than the image's"; __kk_im_stale=1; return 1
         fi
     done
     # dependency edges DIR<US>NAME<US>FILE: what `kk.uses NAME` from DIR found
@@ -1722,18 +2030,56 @@ kk._image__check() {
         if kk._unit_find "$__kk_hc_n" "$__kk_hc_d" && [[ $__kk_found == "$__kk_hc_f" || $__kk_found -ef $__kk_hc_f ]]; then
             continue
         fi
-        __kk_im_why="the dependency '$__kk_hc_n' (used from $__kk_hc_d) resolves to another file now"; return 1
+        __kk_im_why="stale: the dependency '$__kk_hc_n' (used from $__kk_hc_d) resolves to another file now"; __kk_im_stale=1; return 1
     done
-    # staleness, `dates` (§7.6): NAME.ref was made before the image's load
-    if [[ ! -f $__kk_im_ref || -L $__kk_im_ref ]]; then __kk_im_why="no reference file $__kk_im_ref"; return 1; fi
-    __kk_hc_x=""
-    { IFS= read -r __kk_hc_x < "$__kk_im_ref"; } 2>/dev/null || :
-    if [[ $__kk_hc_x != "$__kk_img_nonce" ]]; then __kk_im_why="the reference file belongs to another image"; return 1; fi
-    for __kk_hc_f in "${__kk_img_files[@]}"; do
-        if [[ ! -f $__kk_hc_f || ! $__kk_hc_f -ot $__kk_im_ref ]]; then
-            __kk_im_why="stale: $__kk_hc_f changed after the image was made (or is missing)"; return 1
-        fi
-    done
+    # staleness per mode (§7.6)
+    case $__kk_im_mode in
+        dates)  # NAME.ref was made before the image's load; its nonce is the image's
+            if [[ ! -f $__kk_im_ref || -L $__kk_im_ref ]]; then __kk_im_why="no reference file $__kk_im_ref"; return 1; fi
+            __kk_hc_x=""
+            { IFS= read -r __kk_hc_x < "$__kk_im_ref"; } 2>/dev/null || :
+            if [[ $__kk_hc_x != "$__kk_img_nonce" ]]; then __kk_im_why="the reference file belongs to another image"; return 1; fi
+            for __kk_hc_f in "${__kk_img_files[@]}"; do
+                if [[ ! $__kk_hc_f -ot $__kk_im_ref ]]; then
+                    __kk_im_why="stale: $__kk_hc_f changed after the image was made"; __kk_im_stale=1; return 1
+                fi
+            done ;;
+        stat|hash)
+            if (( ! __kk_im_modes )); then
+                __kk_hc_k=${__kk_im_pl[6]}
+                [[ $__kk_im_mode == stat ]] || __kk_hc_k=hash
+                if ! kk._image_stamp "$__kk_hc_k" "${__kk_img_files[@]}"; then
+                    __kk_im_why="stale: $__kk_hc_k failed over the stamped files"; __kk_im_stale=1; return 1
+                fi
+                __kk_hc_st=$__kk_im_so
+            fi
+            if [[ $__kk_hc_st != "$__kk_img_stamp" ]]; then
+                kk._image_lines "$__kk_hc_st" __kk_hc_a
+                kk._image_lines "$__kk_img_stamp" __kk_hc_b
+                for (( __kk_hc_i = 0; __kk_hc_i < ${#__kk_img_files[@]}; __kk_hc_i++ )); do
+                    [[ ${__kk_hc_a[__kk_hc_i]-} == "${__kk_hc_b[__kk_hc_i]-}" ]] || break
+                done
+                __kk_im_why="stale: ${__kk_img_files[__kk_hc_i]-a stamped file} changed after the image was made ($__kk_im_mode)"
+                __kk_im_stale=1
+                return 1
+            fi
+            # "racy" (stat): a file whose ctime is the second the stamps were
+            # taken in (or later) may have changed after them within that
+            # second (a same-size edit, the mtime put back): a miss — written
+            # again with a later stamp second — but not "stale" (no hold)
+            if [[ $__kk_im_mode == stat ]]; then
+                kk._image_lines "$__kk_hc_st" __kk_hc_a
+                for (( __kk_hc_i = 0; __kk_hc_i < ${#__kk_hc_a[@]}; __kk_hc_i++ )); do
+                    __kk_hc_x=${__kk_hc_a[__kk_hc_i]#* * }
+                    __kk_hc_x=${__kk_hc_x%% *}
+                    if [[ -z $__kk_hc_x || $__kk_hc_x == *[!0-9]* || -z $__kk_img_stime || $__kk_img_stime == *[!0-9]* ]] \
+                       || (( 10#$__kk_hc_x >= 10#$__kk_img_stime )); then
+                        __kk_im_why="${__kk_img_files[__kk_hc_i]-a stamped file} changed in the second its stamp was taken (racy)"
+                        return 1
+                    fi
+                done
+            fi ;;
+    esac
     # a name the image assigns that is readonly here (§8.3)
     for __kk_hc_x in "${__kk_img_vars[@]}"; do
         if [[ ${!__kk_hc_x@a} == *r* ]]; then __kk_im_why="'$__kk_hc_x' is readonly in this shell"; return 2; fi
@@ -1760,6 +2106,17 @@ kk._image__check() {
         __kk_im_why="$__kk_hc_n differs from the image's base"; return 2
     done
     return 0
+}
+
+# kk._image__levels ARRAY — the caller's ARRAY = __kk_im_ml's levels.
+kk._image__levels() {
+    local -n __kk_iv_r=$1
+    local __kk_iv_l=$__kk_im_ml
+    __kk_iv_r=()
+    while [[ -n $__kk_iv_l ]]; do
+        __kk_iv_r+=("${__kk_iv_l%%"$__KK_SEP"*}")
+        if [[ $__kk_iv_l == *"$__KK_SEP"* ]]; then __kk_iv_l=${__kk_iv_l#*"$__KK_SEP"}; else __kk_iv_l=""; fi
+    done
 }
 
 # ---------------------------------------------------------------------------
