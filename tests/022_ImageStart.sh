@@ -1,0 +1,181 @@
+#!/usr/bin/env bash
+# ImageStart — the image start of kk.image (kklass/docs/dev/IMAGE_PLAN.md §7.2,
+# §8.3, §9; stage I2a-1): staleness (`dates`: a stamped file newer than the
+# reference file; a dependency edge resolving elsewhere), the undo of a
+# truncated image (under a caller's set -eu: the script survives, the state is
+# a normal load's), a failing hook on start (undo, then the unit's own error
+# and rc), a readonly collision (a plain load), the hook-run guard on start
+# (kk._image_hook: no unit loads inside a hook), no fork on a hit, the writer's
+# refusals (an export, a trap, a changed variable, a redefined function, a
+# failed load, a CR function the parser would drop). Fixture: image_fixture.sh.
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+KTESTS_LIB_DIR="$SCRIPT_DIR/../../ktests"
+source "$KTESTS_LIB_DIR/ktest.sh"
+
+kt_test_init "ImageStart" "$SCRIPT_DIR" "$@"
+
+source "$SCRIPT_DIR/unit_fixture.sh"
+source "$SCRIPT_DIR/image_fixture.sh"
+UF_FX="$_KT_TMPDIR/fx"
+if_build "$UF_FX" || { kt_test_start "fixture"; kt_test_fail "if_build failed"; exit 1; }
+FX="$UF_FX"
+UF_ENV=(KBOOL_IMAGE_DIR="$FX/img")
+H='source "$FX/kbool.sh" || exit 9'
+# D = the debug lines of kk.image only (VERBOSE_KKLASS=debug in the key)
+D='VERBOSE_KKLASS=debug'
+# FL: fl TEXT = the first line of $FX/e.txt holding TEXT (kk.image's stderr
+# kept in a file: in a pipeline it would run in a subshell)
+FL='fl() { local l; while IFS= read -r l; do [[ $l == *"$1"* ]] && { echo "$l"; return 0; }; done < "$FX/e.txt"; return 0; }'
+
+# ---------------------------------------------------------------------------
+kt_test_section "022: staleness (dates, §7.6) and dependency edges (§7.2)"
+
+uf_run "$H; $D"'; kk.image ia 2>/dev/null'
+uf_run "$H; $D"'; kk.image ia 2>&1 | head -1'
+[[ $UF_OUT == "kbool: image: loaded from $FX/img/ia-"*".img" ]]
+uf_check "the fixture image hits" $?
+REF0=$(cat "$FX"/img/ia-*.ref)
+touch "$FX/kcl/ib/ib.sh"
+uf_run "$H; $D"'; kk.image ia 2>&1 | grep -v "writer profile"'
+[[ $UF_OUT == "kbool: image: stale: $FX/kcl/ib/ib.sh changed after the image was made (or is missing): a normal load, then an image"$'\n'"kbool: image: wrote $FX/img/ia-"*".img" ]]
+uf_check "a dependency's file edited (newer than NAME.ref): stale, a normal load, the image written again" $?
+uf_run "$H; $D"'; kk.image ia 2>&1 | head -1'
+[[ $UF_OUT == "kbool: image: loaded from $FX/img/ia-"*".img" && $(cat "$FX"/img/ia-*.ref) != "$REF0" ]]
+uf_check "the rewritten image hits; its reference nonce is new" $?
+touch "$FX/kkore/kimage.sh"
+uf_run "$H; $D"'; kk.image ia 2>&1 | head -1'
+[[ $UF_OUT == "kbool: image: stale: $FX/kkore/kimage.sh changed"* ]]
+uf_check "kkore/kimage.sh edited: stale (kbool.sh, kkore and kklass.sh are stamped too) [§7.1, H3]" $?
+touch -t 202001010000 "$FX/kkore/kimage.sh"
+uf_run "$H; $D"'; kk.image ia 2>&1 | head -1'
+[[ $UF_OUT == "kbool: image: loaded from $FX/img/ia-"*".img" ]]
+uf_check "an edited file dated back (cp -p, an old archive) is not seen by dates — the documented blind spot (§7.6, R15; KBOOL_VERSION is keyed for releases)" $?
+printf '%s\n' '[[ ${__KK_UNITS[@]@a} == A* ]] || source "${BASH_SOURCE%ib.sh}../../kbool.sh" || return' \
+    'kk.unit ib || return $__kk_unit_rc' 'ib.f() { echo "shadow ib.f"; }' 'IB_V=shadow' > "$FX/kcl/ia/ib.sh"
+touch -t 202001010000 "$FX/kcl/ia/ib.sh"
+uf_run "$H; $D; $FL"'; kk.image ia 2>"$FX/e.txt"; fl ""; ib.f'
+[[ $UF_OUT == "kbool: image: the dependency 'ib' (used from $FX/kcl/ia) resolves to another file now: a normal load, then an image"$'\n'"shadow ib.f" ]]
+uf_check "a dependency shadowed in its user's folder (ia uses ib: kcl/ia/ib.sh appears): the edge differs, a normal load takes the new file [§7.2, M1]" $?
+rm -f "$FX/kcl/ia/ib.sh"
+uf_run "$H; $D; $FL"'; kk.image ia 2>"$FX/e.txt"; fl ""; ib.f'
+[[ $UF_OUT == "kbool: image: the dependency 'ib' (used from $FX/kcl/ia) resolves to another file now"*$'\n'"ib.f" ]]
+uf_check "the shadow removed again: the image of the shadowed load is not used either" $?
+
+# ---------------------------------------------------------------------------
+kt_test_section "022: a damaged image: undo, then a normal load (§8.3, IMG-D8)"
+
+cat > "$FX/st.sh" <<'EOF'
+# st.sh MODE FILE — kk.image ia under set -eu, then the state dump (in this process)
+source "$FX/kbool.sh" || exit 9
+set -eu
+if [[ $1 == plain ]]; then KBOOL_IMAGE=off kk.image ia; else kk.image ia; fi
+echo "survived rc=$? pid=${__KK_UNIT_PID[ia]+normal} f=$(ia.f)"
+set +eu
+source "$FX/kkore/kimage.sh" || exit 9
+kk._img_state "$2" canon
+EOF
+rm -f "$FX"/img/*
+uf_run 'bash "$FX/st.sh" miss "$FX/s0.d"; bash "$FX/st.sh" plain "$FX/plain.d"; :'
+for f in "$FX"/img/ia-*.img; do IMG=$f; done
+cp "$IMG" "$FX/img.full"
+SZ=$(( $(wc -c < "$IMG") ))
+IFS= read -r L1 < "$IMG"
+HL=$(( ${#L1} + 1 + ${L1##* } ))          # line 1 + the header it measures
+for cut in body last; do
+    # (a cut inside the header is another case: a miss, the image written again)
+    if [[ $cut == body ]]; then
+        head -c $(( HL + (SZ - HL) / 2 )) "$FX/img.full" > "$IMG"
+    else                                   # the last line (the end mark) dropped
+        IFS= read -r -d '' z < "$FX/img.full" || :
+        z=${z%$'\n'}
+        printf '%s\n' "${z%$'\n'*}" > "$IMG"
+    fi
+    uf_run 'bash "$FX/st.sh" hit "$FX/s1.d" 2>&1; bash "$FX/cmp.sh" "$FX/plain.d" "$FX/s1.d"'
+    [[ $UF_OUT == 'survived rc=0 pid=normal f=ia.f a b "q" $x 4 v 2 7'$'\n'"cmp rc=0 " ]]
+    uf_check "an image truncated ($cut): undone, then a normal load under set -eu — the script survives, the state equals a normal load's [§8.3]" $?
+done
+cp "$FX/img.full" "$IMG"
+uf_run 'bash "$FX/st.sh" hit "$FX/s2.d"; bash "$FX/cmp.sh" "$FX/plain.d" "$FX/s2.d"'
+[[ $UF_OUT == 'survived rc=0 pid= f=ia.f a b "q" $x 4 v 2 7'$'\n'"cmp rc=0 " ]]
+uf_check "the whole image again: a hit under set -eu, the state a normal load's" $?
+printf 'garbage(\n' >> "$IMG"
+uf_run 'bash "$FX/st.sh" hit "$FX/s3.d"; bash "$FX/cmp.sh" "$FX/plain.d" "$FX/s3.d"'
+[[ $UF_OUT == 'survived rc=0 pid=normal f=ia.f a b "q" $x 4 v 2 7'$'\n'"cmp rc=0 " ]]
+uf_check "a syntax error after the end mark: undone (the source fails), a normal load" $?
+cp "$FX/img.full" "$IMG"
+
+# ---------------------------------------------------------------------------
+kt_test_section "022: hooks on start (§5.2, §8.3; the hook-run guard, I1a L9)"
+
+uf_run "$H"'; kk.image ihf; echo "rc=$?"'
+uf_run "$H"'; IHF_FAIL=1; kk.image ihf; echo "rc=$? ${__KK_UNITS[ihf]-not-registered} ${IHF_OK-unset}"'
+A=$UF_OUT
+uf_run "$H"'; IHF_FAIL=1; KBOOL_IMAGE=off kk.image ihf; echo "rc=$? ${__KK_UNITS[ihf]-not-registered} ${IHF_OK-unset}"'
+[[ $A == "kbool: error: kk.uses: loading unit 'ihf' failed (rc=5)"$'\n'"rc=5 not-registered unset" && $A == "$UF_OUT" ]]
+uf_check "a hook failing on start: the image undone, then the normal load — the unit's own error and rc, the same as without an image" $?
+
+uf_run "$H"'; kk.image ihg'
+uf_run "$H"'; IHG_EVIL=1; kk.image ihg; echo "rc=$? uses=$IHG_USES src=$IHG_SRC ib2=${IB2_LOADED-no} ib3=${IB3_LOADED-no} ${__KK_UNITS[ib2]-}${__KK_UNITS[ib3]-}"'
+[[ $UF_OUT == "kbool: error: kk.uses ib2: a settings hook may not load units (inside the hook ihg._s of unit 'ihg')"$'\n'"kbool: error: kk.unit ib3: a settings hook may not load units (inside the hook ihg._s of unit 'ihg'; in "*")"$'\n'"rc=0 uses=2 src=2 ib2=no ib3=no " ]]
+uf_check "the hooks of an image start run marked (kk._image_hook): a kk.uses or a source loading a unit inside one is refused with kk.settings' message [I1a L9]" $?
+uf_run "$H"'; kk.image ihg; IHG_EVIL=1; ihg._s; echo "uses=$IHG_USES ib2=${IB2_LOADED-no}"'
+[[ $UF_OUT == "uses=0 ib2=1" ]]
+uf_check "(the same hook called outside any hook run loads ib2: the guard is the mark, not the hook)" $?
+
+uf_run "$H; $D"'; kk.image iro 2>/dev/null'
+uf_run "$H; $D"'; readonly IRO_C=1; kk.image iro 2>&1 | head -1'
+[[ $UF_OUT == "kbool: image: 'IRO_C' is readonly in this shell; a normal load (kk.uses iro)" ]]
+uf_check "a name the image assigns is readonly in the caller: a plain load, no image read or written [§8.3]" $?
+uf_run "$H"'; readonly IRO_C=1; kk.image iro; echo "rc=$? c=$IRO_C v=$IRO_V"'
+[[ $UF_OUT == "rc=0 c=1 v=2" ]]
+uf_check "(the unit loads normally: its readonly guard keeps the caller's constant)" $?
+
+# ---------------------------------------------------------------------------
+kt_test_section "022: no fork on a hit (§9)"
+
+uf_run "$H"'; kk.image ia'
+uf_run "$H"'; exec 8>"$FX/fk.trace"; BASH_XTRACEFD=8; PS4='"'"'+${BASHPID}|'"'"'; printf "MAIN=%s\n" "$BASHPID" >&8; set -x; kk.image ia; set +x; unset BASH_XTRACEFD; echo "pid=${__KK_UNIT_PID[ia]+normal}"'
+forks=0 lines=0 main="" src=0
+while IFS= read -r line; do
+    case $line in MAIN=*) main=${line#MAIN=}; continue ;; +*) ;; *) continue ;; esac
+    p=${line%%|*}; p=${p##*+}
+    [[ -n $p && $p != *[!0-9]* ]] || continue
+    lines=$(( lines + 1 ))
+    [[ $line == *"source "*".img"* ]] && src=1
+    [[ $p == "$main" ]] || forks=$(( forks + 1 ))
+done < "$FX/fk.trace"
+[[ $UF_OUT == "pid=" && -n $main && $lines -gt 50 && $src == 1 && $forks == 0 ]]
+uf_check "an image start (key, trust, header, edges, stamps, readonly check, source, hooks) runs in ONE process: 0 forks over $lines traced commands" $?
+
+# ---------------------------------------------------------------------------
+kt_test_section "022: no image (the refusals of I2a-1, §6.3)"
+
+declare -A RF=(
+    [iex]="the load exported IEX_V outside the settings hooks"
+    [itr]="the load changed the shell state: trap"
+    [ichg]="the load changed the existing variable ICHG_V outside the settings hooks (chained deltas: I2b)"
+    [ifn]="the load redefined an existing function (chained deltas: I2b)"
+    [ifail]="the load failed (rc 3)"
+)
+for u in iex itr ichg ifn ifail; do
+    uf_run "$H; $D"'; ICHG_V=orig; userfn() { echo mine; }; kk.image '"$u"' 2>&1 | grep "no image written"; '"$D"' kk.image '"$u"' 2>/dev/null; echo "rc=$?"'
+    if_imgs
+    [[ $UF_OUT == "kbool: image: no image written: ${RF[$u]}"$'\n'"rc="* && $IF_IMGS != *"$u-"* ]]
+    uf_check "unit $u: no image (${RF[$u]}); the units stay loaded with kk.uses' rc" $?
+done
+
+cr=$(printf '\r')
+eval "probe='$cr'"
+if [[ -z $probe ]]; then
+    uf_run "$H; $D; $FL"'; kk.image icr 2>"$FX/e.txt"; fl "no image written"; icr.f'
+    [[ $UF_OUT == "kbool: image: no image written: a function text holds a CR byte this parser drops, and kklass (kk._fn_text_cr) is not loaded"$'\n'"cr=1" ]]
+    uf_check "a function with a CR byte on a CR-dropping parser without kklass: no image (it would lose the CR); the function works [§6.4]" $?
+else
+    uf_run "$H; $D"'; kk.image icr 2>/dev/null'
+    uf_run "$H; $D; $FL"'; kk.image icr 2>"$FX/e.txt"; fl ""; icr.f'
+    [[ $UF_OUT == "kbool: image: loaded from "*$'\n'"cr=1" ]]
+    uf_check "a function with a CR byte on a parser that keeps CR: imaged as it is; the CR survives the start [§6.4]" $?
+fi
+
+kt_test_log "022_ImageStart.sh completed"

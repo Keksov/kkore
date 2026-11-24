@@ -145,9 +145,13 @@ uf_run() {
     # in the fixture's empty cwd/ folder (uses U3): a NAME lookup at a prompt
     # searches $PWD first, and since the system units carry headers the suite's
     # own folder (kkore/, when run as `bash tests/tests.sh`) would hold them.
+    # Load images (kk.image): no image variable of the caller's, and no real
+    # per-user cache folder (LOCALAPPDATA, XDG_CACHE_HOME): the fallback is the
+    # fixture HOME's .cache; UF_ENV (an array, NAME=VALUE words) adds values.
     UF_OUT="$(cd "$UF_FX/cwd" 2>/dev/null || cd "$UF_FX"; env -u KBOOL_HOME -u KBOOL_CONFIG -u VERBOSE_KKLASS -u KK_UNIT_DIR -u __KK_LOADED \
         -u USERPROFILE -u ProgramData -u PROGRAMDATA \
-        HOME="$UF_FX/home" __KK_CFG_ETC="$UF_FX/etc/kbool" FX="$UF_FX" "$BASH" -c "$1" 2>&1)"
+        -u LOCALAPPDATA -u XDG_CACHE_HOME -u KBOOL_IMAGE -u KBOOL_IMAGE_DIR -u KBOOL_IMAGE_CHECK -u KBOOL_IMAGE_CHAIN \
+        HOME="$UF_FX/home" __KK_CFG_ETC="$UF_FX/etc/kbool" FX="$UF_FX" "${UF_ENV[@]}" "$BASH" -c "$1" 2>&1)"
     UF_RC=$?
 }
 

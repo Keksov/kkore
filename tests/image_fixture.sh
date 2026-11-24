@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+# Shared fixture of the load-image tests (021_Image.sh, 022_ImageStart.sh;
+# kklass/docs/dev/IMAGE_PLAN.md, stage I2a-1). Not a test file: the runner
+# only picks up NNN_*.sh. Needs unit_fixture.sh (uf_build, uf_run) sourced.
+#
+# if_build DIR — uf_build DIR plus the image units below; every file is dated
+# 2020 (`dates` staleness: a stamped file must be older than the image's
+# reference file, made at the load's start — a file written in the same clock
+# tick would not be), and the image folder is DIR/img (KBOOL_IMAGE_DIR, through
+# uf_run's UF_ENV). Units:
+#   ib    a dependency: a function, a scalar
+#   ia    kk.uses ib; scalars (quotes, $, a newline), an indexed array (an empty
+#         element, a CR), an assoc array (keys with blanks and quotes), an
+#         integer, a readonly constant (guarded per name), a function, a hook
+#         ia._s (IA_W:=80, kk.localeDefault) with VARs IA_W LC_CTYPE
+#   ihf   a hook that fails when IHF_FAIL=1 (rc 5): `kk.settings … || return`
+#   ihg   a hook that, when IHG_EVIL=1, tries to load ib2 (kk.uses) and to
+#         source ib3 (the hook-run guard on an image start)
+#   iex   exports IEX_V at load (a refusal); itr sets a trap (a refusal);
+#         ichg changes the caller's ICHG_V; ifn redefines the caller's
+#         function userfn; ifail returns 3 (a load failure)
+#   icr   a function whose text holds a CR byte ($'\r')
+#   iin   calls `kk.image ib` inside its own load (not applicable there)
+#   iro   a readonly constant IRO_C guarded per name
+# Helpers in DIR: dump.sh FILE (kk._img_state FILE canon, in the child's
+# state), cmp.sh A B (kk._img_cmp A B set with the documented allow-list:
+# prints `cmp rc=N DIFF`).
+
+# if_unit DIR NAME — a unit NAME whose body is read from stdin (a quoted
+# here-document: no quoting games)
+if_unit() {
+    local dir="$1/kcl/$2"
+    mkdir -p "$dir"
+    {
+        printf '%s\n' '[[ ${__KK_UNITS[@]@a} == A* ]] || source "${BASH_SOURCE%'"$2"'.sh}../../kbool.sh" || return'
+        printf '%s\n' "kk.unit $2 || return \$__kk_unit_rc"
+        cat
+    } > "$dir/$2.sh"
+}
+
+if_build() {
+    local fx=$1
+    uf_build "$fx" || return 1
+    if_unit "$fx" ib <<'EOF'
+ib.f() { echo "ib.f"; }
+IB_V=7
+EOF
+    if_unit "$fx" ib2 <<'EOF'
+IB2_LOADED=1
+EOF
+    if_unit "$fx" ib3 <<'EOF'
+IB3_LOADED=1
+EOF
+    if_unit "$fx" ia <<'EOF'
+kk.uses ib || return
+declare -g IA_S='a b "q" $x'
+declare -g IA_NL=$'line1\nline2'
+declare -ga IA_A=(one "two words" "" $'c\rr')
+declare -gA IA_M=([k1]=v1 ["key two"]="v 2" [q]="it's")
+declare -gi IA_I=42
+[[ -n ${IA_C+x} ]] || declare -gr IA_C=const
+ia.f() { echo "ia.f ${IA_S} ${#IA_A[@]} ${IA_M[key two]} $IB_V"; }
+ia._s() {
+    : "${IA_W:=80}"
+    kk.localeDefault
+    return 0
+}
+kk.settings ia._s IA_W LC_CTYPE || return
+EOF
+    if_unit "$fx" ihf <<'EOF'
+ihf._s() { [[ ${IHF_FAIL-} != 1 ]] || return 5; IHF_OK=1; return 0; }
+kk.settings ihf._s IHF_OK || return
+EOF
+    if_unit "$fx" ihg <<'EOF'
+ihg._s() {
+    if [[ ${IHG_EVIL-} == 1 ]]; then
+        kk.uses ib2; IHG_USES=$?
+        source "${IHG_DIR}/../ib3/ib3.sh"; IHG_SRC=$?
+    fi
+    return 0
+}
+IHG_DIR=$KK_UNIT_DIR
+kk.settings ihg._s IHG_USES IHG_SRC || return
+EOF
+    if_unit "$fx" iex <<'EOF'
+export IEX_V=1
+EOF
+    if_unit "$fx" itr <<'EOF'
+trap ':' USR1
+EOF
+    if_unit "$fx" ichg <<'EOF'
+ICHG_V=changed
+EOF
+    if_unit "$fx" ifn <<'EOF'
+userfn() { echo redefined; }
+EOF
+    if_unit "$fx" ifail <<'EOF'
+return 3
+EOF
+    if_unit "$fx" icr <<'EOF'
+icr.f() { local cr=$'\r'; echo "cr=${#cr}"; }
+EOF
+    if_unit "$fx" iin <<'EOF'
+kk.image ib
+IIN_RC=$?
+EOF
+    if_unit "$fx" iro <<'EOF'
+[[ -n ${IRO_C+x} ]] || declare -gr IRO_C=1
+IRO_V=2
+EOF
+    cat > "$fx/dump.sh" <<'EOF'
+source "$FX/kkore/kimage.sh" || exit 9
+kk._img_state "$1" canon
+EOF
+    cat > "$fx/cmp.sh" <<'EOF'
+# the allow-list of a hit-vs-normal-load compare (IMAGE_PLAN §4, M6): the
+# loader's frame index of each unit (inert once loaded), pid state, the name
+# index and the caller-keyed tables, the hash table; CR function texts compare
+# with ''<CR>'' as <CR> (kk._fn_text_cr's round trip)
+source "$FX/kbool.sh" || exit 9
+source "$FX/kkore/kimage.sh" || exit 9
+__KK_IMG_CMPV=(__KK_UNIT_BOT __KK_UNIT_PID __KK_UNIT_IDX __KK_UNIT_CAND __KK_UNIT_IDX_OK __KK_UNIT_RES
+    __KK_UNIT_HIT __KK_FILE_PWD BASH_CMDS PPID)
+__KK_IMG_CMPCR=1
+__KK_IMG_ALL=${CMP_ALL-}
+kk._img_cmp "$1" "$2" set
+echo "cmp rc=$? $__KK_IMG_DIFF"
+EOF
+    mkdir -p "$fx/img" "$fx/home"
+    touch -t 202001010000 "$fx/kbool.sh" "$fx"/kkore/*.sh "$fx"/kcl/*/*.sh || return 1
+}
+
+# if_imgs — IF_IMGS = the image files (basenames, sorted by the glob) in $FX/img
+if_imgs() {
+    local f
+    IF_IMGS=""
+    for f in "$FX"/img/*.img; do
+        [[ -e $f ]] && IF_IMGS+="${f##*/} "
+    done
+    IF_IMGS=${IF_IMGS% }
+}

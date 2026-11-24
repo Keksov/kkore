@@ -213,6 +213,16 @@ kk.settings greet._settings; echo "rc=$?"    # => rc=2
 # 2> kk.settings greet._settings: not inside a unit's load
 ```
 
+### `kk.image UNIT...` — load images (in progress)
+
+`kk.image UNIT...` behaves like `kk.uses UNIT...` (the same units, the same rc), but a later
+start sources a saved image of the load instead of loading the units again, then runs their
+settings hooks; any doubt is a normal load. It is being built in stages
+(`kklass/docs/dev/IMAGE_PLAN.md`; today: the first load of a script, the `dates` staleness
+check, the flags `KBOOL_IMAGE`, `KBOOL_IMAGE_DIR`, `KBOOL_IMAGE_CHECK`, `KBOOL_IMAGE_CHAIN`).
+The header of `kuse.sh` ("Load images") has the current rules; this section gets the full
+reference when the feature is complete (stage I4).
+
 ### Variables
 
 | name | |
