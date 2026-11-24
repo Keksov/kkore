@@ -125,7 +125,7 @@ IAK_M[\$'\r']=vcr IAK_M[\$'\t']=vtab IAK_M[\$'\001']=v1 IAK_M[\$'\177']=v177 IAK
 iak.n() { local a='@' s='*' b=']' h=\$'\xff'; echo "n=\${#IAK_M[@]} at=\${IAK_M[\$a]-none} star=\${IAK_M[\$s]-none} br=\${IAK_M[\$b]-none} ff=\${#IAK_M[\$h]}"; }
 EOF
     cat > "$fx/dump.sh" <<'EOF'
-source "$FX/kkore/kimage.sh" || exit 9
+kk._image_lib || exit 9     # (kimghit.sh + kimage.sh: the same functions in both dumps)
 kk._img_state "$1" canon
 EOF
     cat > "$fx/cmp.sh" <<'EOF'
@@ -134,7 +134,7 @@ EOF
 # index and the caller-keyed tables, the hash table; CR function texts compare
 # with ''<CR>'' as <CR> (kk._fn_text_cr's round trip)
 source "$FX/kbool.sh" || exit 9
-source "$FX/kkore/kimage.sh" || exit 9
+kk._image_lib || exit 9     # (kimghit.sh + kimage.sh: the same functions in both dumps)
 __KK_IMG_CMPV=(__KK_UNIT_BOT __KK_UNIT_PID __KK_UNIT_IDX __KK_UNIT_CAND __KK_UNIT_IDX_OK __KK_UNIT_RES
     __KK_UNIT_HIT __KK_FILE_PWD BASH_CMDS PPID)
 __KK_IMG_CMPCR=1
@@ -142,7 +142,10 @@ __KK_IMG_ALL=${CMP_ALL-}
 kk._img_cmp "$1" "$2" set
 echo "cmp rc=$? $__KK_IMG_DIFF"
 EOF
-    mkdir -p "$fx/img" "$fx/home"
+    # (the image folder under umask 077, as kk.image makes its own: a caller
+    # umask 002 — some CI rows — gives 775, which stat mode refuses)
+    ( umask 077 && mkdir -p "$fx/img" )
+    mkdir -p "$fx/home"
     touch -t 202001010000 "$fx/kbool.sh" "$fx"/kkore/*.sh "$fx"/kcl/*/*.sh || return 1
 }
 
@@ -163,7 +166,8 @@ if_age() {
 }
 
 # if_pfield IMG N -> IF_F: field N of IMG's plain header line (0 wtime, 1 size,
-# 2 tag, 3 home, 4 prior, 5 mode, 6 flavour, 7 count, 8… files)
+# 2 tag, 3 home, 4 prior, 5 mode, 6 flavour, 7 nonce, 8 request hash, 9 count,
+# 10… files)
 if_pfield() {
     local l1 l2 IFS=$'\x1f'
     local -a a=()

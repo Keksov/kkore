@@ -41,8 +41,9 @@ touch -t 202001010000 "$FX"/kcl/*/*.sh
 # lines pruning reads (line 1, the plain line); default TAG = this runtime's
 fake() {
     local p
-    printf -v p '#P%s%s%s%012d%s%s%s%s%s%s%sdates%s-%s0' "$US" "$2" "$US" "${3:-100}" "$US" "${4:-$TAG}" "$US" "${5:-$FX}" \
-        "$US" "${6-}" "$US" "$US" "$US"
+    # (fields: wtime size tag home prior mode flavour nonce rhash count)
+    printf -v p '#P%s%s%s%012d%s%s%s%s%s%s%sdates%s-%s0%s0%s0' "$US" "$2" "$US" "${3:-100}" "$US" "${4:-$TAG}" "$US" "${5:-$FX}" \
+        "$US" "${6-}" "$US" "$US" "$US" "$US" "$US"
     printf '# kbool image v1 %s\n%s\n' "$(( ${#p} + 1 ))" "$p" > "$FX/img/$1"
 }
 # left PATTERN… -> LEFT: the basenames in img/ matching the globs (sorted)
@@ -156,10 +157,10 @@ uf_run 'bash "$FX/w.sh" & bash "$FX/w.sh" & wait'
 A=$UF_OUT
 left 'ia-*' '*.tmp.*'
 B=$LEFT
-uf_run "$H"'; kk.image ia; kk.image --path ia >/dev/null; echo "path=$?"'
 uf_run "$H"'; kk.image --path ia >/dev/null; echo "path=$?"'
-[[ $A == 'w rc=0 ia.f a b "q" $x 4 v 2 7'$'\n''w rc=0 ia.f a b "q" $x 4 v 2 7' && $B == "ia-"*".img ia-"*".ref" && $UF_OUT == "path=0" ]]
-uf_check "two writers at once: both loads fine, one image and one .ref left (the last rename wins), no temp; the folder settles to a valid image" $?
+for f in "$FX"/img/ia-*.img; do if_pfield "$f" 7; done
+[[ $A == 'w rc=0 ia.f a b "q" $x 4 v 2 7'$'\n''w rc=0 ia.f a b "q" $x 4 v 2 7' && $B == "ia-"*".$IF_F.ref ia-"*".img" && $UF_OUT == "path=0" ]]
+uf_check "two writers at once: both loads fine, one image and its own NAME.NONCE.ref left (the last rename wins; the other .ref pruned), no temp; the next start hits — no miss (critic L3)" $?
 
 for f in "$FX"/img/ia-*.img; do IMG=$f; done
 cp "$IMG" "$FX/img.old"

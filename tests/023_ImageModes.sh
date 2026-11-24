@@ -25,6 +25,9 @@ WIN=0
 if [[ $OSTYPE == msys* || $OSTYPE == cygwin* ]]; then WIN=1; fi
 REAL_STAT=$(type -P stat)
 REAL_GNU=0; stat -c %Y -- / >/dev/null 2>&1 && REAL_GNU=1      # the host stat: GNU (-c) or BSD (-f)
+# the flavour kk.image probes on this host: nanosecond times when the stat has them
+REAL_FL=bsd; t=$(stat -f %Fm -- / 2>/dev/null); [[ $t == [0-9]*.[0-9]* && $t != *[!0-9.]* ]] && REAL_FL=bsd9
+if (( REAL_GNU )); then REAL_FL=gnu; t=$(stat -c %.9Y -- / 2>/dev/null); [[ $t == [0-9]*.[0-9]* && $t != *[!0-9.]* ]] && REAL_FL=gnu9; fi
 REAL_BASH=$BASH
 
 # fx MODE — a fresh fixture for MODE: FX, UF_FX, UF_ENV
@@ -38,12 +41,19 @@ fx() {
 # line holding TEXT, then the output of ib.f (which file's code is loaded)
 start() { uf_run "$H; $FL"'; kk.image ia 2>"$FX/e.txt"; fl "'"$1"'"; ib.f'; }
 # seen OUT — the start of `start "a normal load"` noticed the change of ib.sh
-# and OUT is what ib.f printed: "stale", or in stat mode "racy" (ib.sh changed
-# in the second its stamp was taken — the image was written right after the
-# case restored ib.sh: the change cannot be told from the stamps, a miss)
+# and OUT is what ib.f printed: "stale"; or, with a whole-second stat flavour
+# (gnu / bsd: no nanoseconds on this host), "racy" (ib.sh's mtime is the
+# second its stamp was taken: a miss)
 seen() {
     [[ $UF_OUT == "kbool: image: stale: $FX/kcl/ib/ib.sh changed"*$'\n'"$1" \
-       || ( $M == stat && $UF_OUT == "kbool: image: $FX/kcl/ib/ib.sh changed in the second its stamp was taken (racy)"*$'\n'"$1" ) ]]
+       || ( $M == stat && ( $REAL_FL == gnu || $REAL_FL == bsd ) \
+            && $UF_OUT == "kbool: image: $FX/kcl/ib/ib.sh changed in the second its stamp was taken (racy)"*$'\n'"$1" ) ]]
+}
+# seen_keep OUT — seen, for a change that keeps the mtime (touch -r, cp -p):
+# with a whole-second flavour a change inside the second of the stamp is not
+# seen (documented; the nanosecond flavours gnu9 / bsd9 see it)
+seen_keep() {
+    seen "$1" || [[ $M == stat && ( $REAL_FL == gnu || $REAL_FL == bsd ) && $UF_OUT == ib.f ]]
 }
 # fresh — a valid image again (the file content restored first by the case)
 fresh() { uf_run "$H"'; kk.image --rebuild ia 2>/dev/null'; }
@@ -65,8 +75,8 @@ for M in stat hash dates; do
     uf_check "$M: a miss writes, the next start hits" $?
     for f in "$FX"/img/ia-*.img; do IMG=$f; done
     if_pfield "$IMG" 5; m=$IF_F; if_pfield "$IMG" 6; fl=$IF_F
-    want=-; if [[ $M == stat ]]; then want=bsd; (( REAL_GNU )) && want=gnu; fi
-    r=no; [[ -f ${IMG%.img}.ref ]] && r=yes
+    want=-; [[ $M != stat ]] || want=$REAL_FL
+    r=no; for x in "${IMG%.img}".*.ref; do [[ -f $x ]] && r=yes; done
     rw=no; [[ $M == dates ]] && rw=yes
     [[ $m == "$M" && $fl == "$want" && $r == "$rw" ]]
     uf_check "$M: the plain header line names the mode ($m) and the stat flavour ($fl); a .ref file only in dates mode" $?
@@ -79,7 +89,7 @@ for M in stat hash dates; do
         [[ $UF_OUT == "ib.f" ]]
         uf_check "dates: a same-size edit with the old mtime is NOT seen (the image's old code runs: the documented blind spot, R15)" $?
     else
-        seen ib.g
+        seen_keep ib.g
         uf_check "$M: a same-size edit with the old mtime is stale (the new code loads)" $?
     fi
     ibset "$IBF"; touch -t 202001010000 "$FX/kcl/ib/ib.sh"; fresh
@@ -93,7 +103,7 @@ for M in stat hash dates; do
         [[ $UF_OUT == "ib.f" ]]
         uf_check "dates: cp -p of an older file is NOT seen (only a KBOOL_VERSION change would be: it is keyed)" $?
     else
-        seen ib.g
+        seen_keep ib.g
         uf_check "$M: cp -p of an older file is stale" $?
     fi
     ibset "$IBF"; touch -t 202001010000 "$FX/kcl/ib/ib.sh"; fresh
@@ -144,6 +154,23 @@ EOF
     [[ $A == "kbool: image: no image written: $FX/kcl/iwin/iwin.sh has a future mtime"$'\n'"kbool: image: held for an hour: $FX/img/iwin-"*".hold" && $UF_OUT == 1 ]]
     uf_check "$M: a future mtime: no image, a hold; the next start is held" $?
     touch -t 202001010000 "$FX/kcl/iwin/iwin.sh"
+    rm -f "$FX"/img/iwin-*
+
+    # a future CTIME (stat; critic M5): a hold, like a future mtime — not a
+    # writer run on every start. A ctime cannot be set portably: iwk changes
+    # its own ctime in its load (touch -r keeps the old mtime), and "now" is
+    # moved back a day through kk._img_now (the writer's clock seam).
+    if [[ $M == stat ]]; then
+        if_unit "$FX" iwk <<'EOF'
+IWK_V=1
+command touch -r "$KK_UNIT_DIR/../ib/ib.sh" "$KK_UNIT_DIR/iwk.sh"
+EOF
+        touch -t 202001010000 "$FX/kcl/iwk/iwk.sh"
+        uf_run "$H"'; kk._image_lib; kk._img_now() { __kk_imw_now=$(( EPOCHSECONDS - 86400 )); }; kk.image iwk 2>&1 | grep "no image written\|held for"'
+        [[ $UF_OUT == "kbool: image: no image written: $FX/kcl/iwk/iwk.sh has a future ctime ("*"kbool: image: held for an hour: $FX/img/iwk-"*".hold" ]]
+        uf_check "stat: a stamped file with a future ctime (now moved back a day): no image, a hold" $?
+        rm -f "$FX"/img/iwk-*
+    fi
 
     # forks of a hit (the trace of every command: another BASHPID = a fork)
     uf_run "$H"'; kk.image ia 2>/dev/null'   # (settles a "racy" image first)
@@ -179,11 +206,11 @@ fx stat
 # fb/: wrappers of the writer's mv, rm, mkdir and the test's head, grep, ls
 # (no stat, no cksum on PATH)
 mkdir -p "$FX/fb"
-for t in mv rm mkdir head grep ls; do
+for t in mv rm mkdir head grep ls cat; do
     printf '#!%s\nexec %q "$@"\n' "$REAL_BASH" "$(type -P "$t")" > "$FX/fb/$t"; chmod +x "$FX/fb/$t"
 done
 for v in stat hash; do
-    uf_run "$H"'; PATH="$FX/fb"; KBOOL_IMAGE_CHECK='"$v"' kk.image ia 2>&1 | head -1; KBOOL_IMAGE_CHECK=dates kk.image --path ia; echo "rc=$?"'
+    uf_run "$H"'; PATH="$FX/fb"; KBOOL_IMAGE_CHECK='"$v"' kk.image ia 2>&1 | { head -1; cat >/dev/null; }; KBOOL_IMAGE_CHECK=dates kk.image --path ia; echo "rc=$?"'
     tool=stat; [[ $v == hash ]] && tool=cksum
     [[ $UF_OUT == "kbool: image: KBOOL_IMAGE_CHECK=$v: $tool is not on PATH; using dates"$'\n'"$FX/img/ia-"*".img"$'\n'"rc=0" ]]
     uf_check "$v without $tool on PATH: runs as dates, keyed as dates (the dates image is the one written), a debug line" $?
@@ -203,7 +230,7 @@ uf_run "$H"'; KBOOL_IMAGE_CHECK=dates kk.image --path ia 2>/dev/null'
    && $B == "kbool: image: KBOOL_IMAGE_CHECK=stat: stat.hold (the stat on PATH takes neither -c nor -f, "*" s ago); using dates"$'\n'"kbool: image: loaded from $UF_OUT" ]]
 uf_check "a stat of an unknown flavour: the writer falls back to dates (the dates image), FOLDER/stat.hold; the next start runs as dates from the hold and hits" $?
 printf '%s old\n' $(( EPOCHSECONDS - 4000 )) > "$FX/img/stat.hold"
-uf_run "$H"'; PATH="$FX/fs"; kk.image ia 2>&1 | head -1'
+uf_run "$H"'; PATH="$FX/fs"; kk.image ia 2>&1 | { head -1; cat >/dev/null; }'
 [[ $UF_OUT == "kbool: image: no image "* ]]
 uf_check "stat.hold older than an hour: stat mode is tried again (a miss: no stat image yet)" $?
 rm -f "$FX"/img/*
@@ -224,19 +251,33 @@ for f in "$FX"/img/ia-*.img; do IMG=$f; done
 if_pfield "$IMG" 6
 [[ $UF_OUT == "kbool: image: loaded from $IMG" && $IF_F == bsd ]]
 uf_check "a BSD stat (only -f): probed as bsd (the plain line says so), the next start hits through stat -f" $?
+# the racy rule of the whole-second flavours: a stamped file whose mtime is
+# not before the second the stamps were taken in (here: that second set back
+# to 2001 in the image) — a miss and a rewrite, not "stale" (no hold)
+IFS= read -r -d '' z < "$IMG" || :
+t=${z#*__kk_img_stime=}; t=${t%%[!0-9]*}
+printf '%s' "${z/__kk_img_stime=$t/__kk_img_stime=1000000000}" > "$IMG.x" && mv -f "$IMG.x" "$IMG"
+uf_run "$H"'; PATH="$FX/fbsd"; kk.image ia 2>&1 | grep -v profile; ls "$FX/img" | grep -c "\.hold$"'
+[[ ${#t} == 10 && $UF_OUT == "kbool: image: $FX/kcl/ia/ia.sh changed in the second its stamp was taken (racy): a normal load, then an image"$'\n'"kbool: image: wrote $IMG"$'\n'"0" ]]
+uf_check "bsd flavour (whole seconds): a file whose mtime is not before the stamp second is racy — a miss, rewritten, no hold" $?
 touch "$FX/kcl/ib/ib.sh"; if_age "$IMG" 3600
-uf_run "$H"'; PATH="$FX/fbsd"; kk.image ia 2>&1 | head -1'
+uf_run "$H"'; PATH="$FX/fbsd"; kk.image ia 2>&1 | { head -1; cat >/dev/null; }'
 [[ $UF_OUT == "kbool: image: stale: $FX/kcl/ib/ib.sh changed after the image was made (stat)"* || $UF_OUT == *"(racy)"* ]]
 uf_check "bsd flavour: an edit is stale" $?
 touch -t 202001010000 "$FX/kcl/ib/ib.sh"; rm -f "$FX"/img/*
 
 # ---------------------------------------------------------------------------
-kt_test_section "023: stat mode's permission bits (§8.1; POSIX only — emulated)"
+kt_test_section "023: stat mode's permission bits (§8.1, critic M4; POSIX only — emulated)"
 
+# The rule: a group- or world-writable IMAGE is refused; a FOLDER only when it
+# is world-writable without the sticky bit (a group-writable folder is fine:
+# the image and its .ref must be this user's, -O, and no symbolic link; a
+# sticky 1777 folder keeps others from renaming or removing them).
 # OSTYPE=linux-gnu in the child after kbool.sh (the bits are not checked on
-# the Windows runtimes, whose modes are no guard); fgw/stat reports mode 775
-# for every path listed in IFAKE_GW and the real modes without their group /
-# other write bits for the rest (one real stat per path)
+# the Windows runtimes, whose modes are no guard); fgw/stat reports the mode
+# of IFAKE_MODE ("PATH=MODE PATH=MODE ...") for the paths listed there and
+# the real modes without their group / other write bits for the rest (one
+# real stat per path)
 mkdir -p "$FX/fgw"; cp "$FX"/fb/* "$FX/fgw/"
 cat > "$FX/fgw/stat" <<EOF
 #!$REAL_BASH
@@ -244,9 +285,8 @@ flag=\$1 fmt=\$2; shift 3
 for p; do
     l=\$("$REAL_STAT" "\$flag" "\$fmt" -- "\$p") || exit 1
     printf -v m '%o' \$(( 8#\${l##* } & ~8#022 ))      # (Cygwin's ACLs report 770 for our own folders)
-    l="\${l% *} \$m"
-    case " \$IFAKE_GW " in *" \$p "*) l="\${l% *} 775" ;; esac
-    printf '%s\n' "\$l"
+    for e in \$IFAKE_MODE; do [[ \${e%=*} != "\$p" ]] || m=\${e##*=}; done
+    printf '%s\n' "\${l% *} \$m"
 done
 EOF
 chmod +x "$FX/fgw/stat"
@@ -257,22 +297,75 @@ for f in "$FX"/img/ia-*.img; do IMG=$f; done
 uf_run "$P"'; kk.image ia 2>&1'
 [[ $UF_OUT == "kbool: image: loaded from $IMG" ]]
 uf_check "(OSTYPE=linux-gnu, the stand-in stat reporting the real modes: a hit)" $?
-uf_run "$P; export IFAKE_GW=\"$IMG\""'; { kk.image ia; echo "rc=$?"; kk.unit --forget ia ib; kk.image ia; echo "rc=$?"; } 2>&1 | grep -v "kbool: image:"'
-[[ $UF_OUT == "kbool: WARNING: image $IMG is not trusted ($IMG is group- or world-writable (mode 775)); loading normally"$'\n'"rc=0"$'\n'"rc=0" ]]
-uf_check "a group-writable image in stat mode (POSIX): ONE WARNING (twice checked), a plain load, nothing written" $?
-uf_run "$P; export IFAKE_GW=\"$FX/img\""'; kk.image ia 2>&1 | head -1'
-[[ $UF_OUT == "kbool: WARNING: image $IMG is not trusted ($FX/img is group- or world-writable (mode 775)); loading normally" ]]
-uf_check "a group-writable image folder with an image in it: the WARNING" $?
+# (WARN U: kk.image ia twice in one process, kk.unit --forget between: the
+# lines that are not debug lines)
+W='{ kk.image ia; echo "rc=$?"; kk.unit --forget ia ib; kk.image ia; echo "rc=$?"; } 2>&1 | grep -v "kbool: image:"'
+uf_run "$P; export IFAKE_MODE=\"$IMG=664\"; $W"
+[[ $UF_OUT == "kbool: WARNING: image $IMG is not trusted ($IMG is group- or world-writable (mode 664)); loading normally"$'\n'"rc=0"$'\n'"rc=0" ]]
+uf_check "a group-writable image file in stat mode (POSIX): ONE WARNING (twice checked), a plain load, nothing written" $?
+uf_run "$P; export IFAKE_MODE=\"$FX/img=775\""'; kk.image ia 2>&1'
+[[ $UF_OUT == "kbool: image: loaded from $IMG" ]]
+uf_check "a group-writable (775) image folder: accepted, a hit" $?
+uf_run "$P; export IFAKE_MODE=\"$FX/img=777\"; $W"
+[[ $UF_OUT == "kbool: WARNING: image $IMG is not trusted ($FX/img is world-writable without the sticky bit (mode 777)); loading normally"$'\n'"rc=0"$'\n'"rc=0" ]]
+uf_check "a world-writable (777) image folder without the sticky bit: ONE WARNING for two refusals, plain loads" $?
+uf_run "$P; export IFAKE_MODE=\"$FX/img=1777\""'; kk.image ia 2>&1'
+[[ $UF_OUT == "kbool: image: loaded from $IMG" ]]
+uf_check "a sticky world-writable (1777) image folder: accepted (the image is this user's, -O / ! -L), a hit" $?
 rm -f "$FX"/img/*
-uf_run "$P; export IFAKE_GW=\"$FX/img\""'; kk.image ia 2>&1 | grep "no image written"; ls "$FX/img" | grep -c .'
-[[ $UF_OUT == "kbool: image: no image written: untrusted folder: $FX/img is group- or world-writable (mode 775)"$'\n'"0" ]]
-uf_check "a group-writable image folder, no image yet: the writer writes nothing (no image, no hold, no temp)" $?
+uf_run "$P; export IFAKE_MODE=\"$FX/img=777\""'; kk.image ia 2>&1 | grep "no image written"; ls "$FX/img" | grep -c .'
+[[ $UF_OUT == "kbool: image: no image written: untrusted folder: $FX/img is world-writable without the sticky bit (mode 777)"$'\n'"0" ]]
+uf_check "a 777 image folder, no image yet: the writer writes nothing (no image, no hold, no temp)" $?
 if (( ! WIN )); then
-    chmod g+w "$FX/img"
+    chmod 777 "$FX/img"
     uf_run "$H"'; KBOOL_IMAGE_CHECK=stat kk.image ia 2>&1 | grep "no image written"'
-    chmod g-w "$FX/img"
-    [[ $UF_OUT == "kbool: image: no image written: untrusted folder: $FX/img is group- or world-writable"* ]]
-    uf_check "POSIX, real chmod g+w on the folder: stat mode writes nothing" $?
+    chmod 700 "$FX/img"
+    [[ $UF_OUT == "kbool: image: no image written: untrusted folder: $FX/img is world-writable without the sticky bit"* ]]
+    uf_check "POSIX, real chmod 777 on the folder: stat mode writes nothing" $?
 fi
+
+# ---------------------------------------------------------------------------
+kt_test_section "023: a caller's umask 002 (CI rows run so; §8.1, critic M4)"
+
+# (1) a folder kk.image makes is 0700 whatever the caller's umask, and works
+UF_ENV=(KBOOL_IMAGE_DIR="$FX/u2/img" KBOOL_IMAGE_CHECK=stat)
+uf_run "$P"'; umask 002; kk.image ia 2>/dev/null; echo "rc=$?"'
+A=$UF_OUT
+uf_run "$P"'; umask 002; kk.image ia 2>&1; echo "rc=$? $(umask)"'
+[[ $A == "rc=0" && $UF_OUT == "kbool: image: loaded from $FX/u2/img/ia-"*".img"$'\n'"rc=0 0002" ]]
+uf_check "umask 002: the folder kk.image makes passes stat mode's bits check: written, then a hit (the caller's umask kept)" $?
+for f in "$FX"/u2/img/ia-*.img; do IMG2=$f; done
+if (( ! WIN )); then
+    m=$(stat -c %a "$FX/u2/img" 2>/dev/null || stat -f %Lp "$FX/u2/img")
+    m2=$(stat -c %a "$IMG2" 2>/dev/null || stat -f %Lp "$IMG2")
+    kt_test_start "umask 002: the folder kk.image made is 700, the image 600 (POSIX)"
+    if [[ $m == 700 && $m2 == 600 ]]; then kt_test_pass "ok"; else kt_test_fail "modes $m $m2"; fi
+    # real modes (the key of the emulated starts: OSTYPE, VERBOSE_KKLASS)
+    R='source "$FX/kbool.sh"; OSTYPE=linux-gnu; VERBOSE_KKLASS=debug; umask 002'
+    chmod 775 "$FX/u2/img"
+    uf_run "$R"'; kk.image ia 2>&1'
+    [[ $UF_OUT == "kbool: image: loaded from $IMG2" ]]
+    uf_check "umask 002, the folder made 775 (POSIX, real modes): stat mode works (a hit)" $?
+    chmod 777 "$FX/u2/img"
+    uf_run "$R; $W"
+    [[ $UF_OUT == "kbool: WARNING: image $IMG2 is not trusted ($FX/u2/img is world-writable without the sticky bit (mode 777)); loading normally"$'\n'"rc=0"$'\n'"rc=0" ]]
+    uf_check "umask 002, a 777 folder (POSIX, real modes): ONE WARNING for two refusals, plain loads" $?
+    chmod 1777 "$FX/u2/img"
+    uf_run "$R"'; kk.image ia 2>&1'
+    [[ $UF_OUT == "kbool: image: loaded from $IMG2" ]]
+    uf_check "umask 002, a 1777 folder (POSIX, real modes): accepted (a hit)" $?
+    chmod 700 "$FX/u2/img"
+fi
+# (2)-(4) on every runtime, through the stand-in stat (OSTYPE=linux-gnu)
+uf_run "$P; export IFAKE_MODE=\"$FX/u2/img=775\""'; umask 002; kk.image ia 2>&1'
+[[ $UF_OUT == "kbool: image: loaded from $IMG2" ]]
+uf_check "umask 002, a 775 folder (emulated): stat mode works (a hit)" $?
+uf_run "$P; export IFAKE_MODE=\"$FX/u2/img=777\"; umask 002; $W"
+[[ $UF_OUT == "kbool: WARNING: image $IMG2 is not trusted ($FX/u2/img is world-writable without the sticky bit (mode 777)); loading normally"$'\n'"rc=0"$'\n'"rc=0" ]]
+uf_check "umask 002, a 777 folder (emulated): ONE WARNING for two refusals" $?
+uf_run "$P; export IFAKE_MODE=\"$FX/u2/img=1777\""'; umask 002; kk.image ia 2>&1'
+[[ $UF_OUT == "kbool: image: loaded from $IMG2" ]]
+uf_check "umask 002, a 1777 folder (emulated): accepted (a hit)" $?
+UF_ENV=(KBOOL_IMAGE_DIR="$FX/img" KBOOL_IMAGE_CHECK=stat)
 
 kt_test_log "023_ImageModes.sh completed"

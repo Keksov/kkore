@@ -32,7 +32,7 @@ FL='fl() { local l; while IFS= read -r l; do [[ $l == *"$1"* ]] && { echo "$l"; 
 kt_test_section "022: staleness (dates, §7.6) and dependency edges (§7.2)"
 
 uf_run "$H; $D"'; kk.image ia 2>/dev/null'
-uf_run "$H; $D"'; kk.image ia 2>&1 | head -1'
+uf_run "$H; $D"'; kk.image ia 2>&1 | { head -1; cat >/dev/null; }'
 [[ $UF_OUT == "kbool: image: loaded from $FX/img/ia-"*".img" ]]
 uf_check "the fixture image hits" $?
 REF0=$(cat "$FX"/img/ia-*.ref)
@@ -44,12 +44,12 @@ touch "$FX/kcl/ib/ib.sh"
 uf_run "$H; $D"'; kk.image ia 2>&1 | grep -v "writer profile"'
 [[ $UF_OUT == "kbool: image: stale: $FX/kcl/ib/ib.sh changed after the image was made: a normal load, then an image"$'\n'"kbool: image: wrote $FX/img/ia-"*".img" ]]
 uf_check "a dependency's file edited (newer than NAME.ref): stale, a normal load, the image written again" $?
-uf_run "$H; $D"'; kk.image ia 2>&1 | head -1'
+uf_run "$H; $D"'; kk.image ia 2>&1 | { head -1; cat >/dev/null; }'
 [[ $UF_OUT == "kbool: image: loaded from $FX/img/ia-"*".img" && $(cat "$FX"/img/ia-*.ref) != "$REF0" ]]
 uf_check "the rewritten image hits; its reference nonce is new" $?
 age
 touch "$FX/kkore/kimage.sh"
-uf_run "$H; $D"'; kk.image ia 2>&1 | head -1'
+uf_run "$H; $D"'; kk.image ia 2>&1 | { head -1; cat >/dev/null; }'
 [[ $UF_OUT == "kbool: image: stale: $FX/kkore/kimage.sh changed"* ]]
 uf_check "kkore/kimage.sh edited: stale (kbool.sh, kkore and kklass.sh are stamped too) [§7.1, H3]" $?
 touch -t 202001010000 "$FX/kkore/kimage.sh"
@@ -61,7 +61,7 @@ mv "$FX/ib.keep" "$FX/kcl/ib/ib.sh"
 uf_check "a stamped file removed: stale (the load then fails: kk.uses' own error, and a hold)" $?
 rm -f "$FX"/img/*.hold
 uf_run "$H; $D"'; kk.image ia 2>/dev/null'
-uf_run "$H; $D"'; kk.image ia 2>&1 | head -1'
+uf_run "$H; $D"'; kk.image ia 2>&1 | { head -1; cat >/dev/null; }'
 [[ $UF_OUT == "kbool: image: loaded from $FX/img/ia-"*".img" ]]
 uf_check "an edited file dated back (cp -p, an old archive) is not seen by dates — the documented blind spot (§7.6, R15; KBOOL_VERSION is keyed for releases)" $?
 age
@@ -87,20 +87,21 @@ set -eu
 if [[ $1 == plain ]]; then KBOOL_IMAGE=off kk.image ia; else kk.image ia; fi
 echo "survived rc=$? pid=${__KK_UNIT_PID[ia]+normal} f=$(ia.f)"
 set +eu
-source "$FX/kkore/kimage.sh" || exit 9
+kk._image_lib || exit 9     # (kimghit.sh + kimage.sh: the same functions in both dumps)
 kk._img_state "$2" canon
 EOF
 rm -f "$FX"/img/*
 uf_run 'bash "$FX/st.sh" miss "$FX/s0.d"; bash "$FX/st.sh" plain "$FX/plain.d"; :'
 for f in "$FX"/img/ia-*.img; do IMG=$f; done
-cp "$IMG" "$FX/img.full"; cp "${IMG%.img}.ref" "$FX/ref.full"
+for REFN in "${IMG%.img}".*.ref; do :; done     # (NAME.NONCE.ref)
+cp "$IMG" "$FX/img.full"; cp "$REFN" "$FX/ref.full"
 SZ=$(( $(wc -c < "$IMG") ))
 IFS= read -r L1 < "$IMG"
 HL=$(( ${#L1} + 1 + ${L1##* } ))          # line 1 + the header it measures
 for cut in body last; do
     # (a cut inside the header is another case: a miss, the image written again;
     # the image is new: undone, then a hold and the image removed — 024)
-    cp "$FX/ref.full" "${IMG%.img}.ref"; rm -f "$FX"/img/*.hold
+    cp "$FX/ref.full" "$REFN"; rm -f "$FX"/img/*.hold
     if [[ $cut == body ]]; then
         head -c $(( HL + (SZ - HL) / 2 )) "$FX/img.full" > "$IMG"
     else                                   # the last line (the end mark) dropped
@@ -112,7 +113,7 @@ for cut in body last; do
     [[ $UF_OUT == 'survived rc=0 pid=normal f=ia.f a b "q" $x 4 v 2 7'$'\n'"cmp rc=0 " ]]
     uf_check "an image truncated ($cut): undone, then a normal load under set -eu — the script survives, the state equals a normal load's [§8.3]" $?
 done
-cp "$FX/img.full" "$IMG"; cp "$FX/ref.full" "${IMG%.img}.ref"; rm -f "$FX"/img/*.hold
+cp "$FX/img.full" "$IMG"; cp "$FX/ref.full" "$REFN"; rm -f "$FX"/img/*.hold
 uf_run 'bash "$FX/st.sh" hit "$FX/s2.d"; bash "$FX/cmp.sh" "$FX/plain.d" "$FX/s2.d"'
 [[ $UF_OUT == 'survived rc=0 pid= f=ia.f a b "q" $x 4 v 2 7'$'\n'"cmp rc=0 " ]]
 uf_check "the whole image again: a hit under set -eu, the state a normal load's" $?
@@ -120,7 +121,7 @@ printf 'garbage(\n' >> "$IMG"
 uf_run 'bash "$FX/st.sh" hit "$FX/s3.d"; bash "$FX/cmp.sh" "$FX/plain.d" "$FX/s3.d"'
 [[ $UF_OUT == 'survived rc=0 pid=normal f=ia.f a b "q" $x 4 v 2 7'$'\n'"cmp rc=0 " ]]
 uf_check "a syntax error after the end mark: undone (the source fails), a normal load" $?
-cp "$FX/img.full" "$IMG"; cp "$FX/ref.full" "${IMG%.img}.ref"; rm -f "$FX"/img/*.hold
+cp "$FX/img.full" "$IMG"; cp "$FX/ref.full" "$REFN"; rm -f "$FX"/img/*.hold
 
 # ---------------------------------------------------------------------------
 kt_test_section "022: the written image reads back to the same state (associative keys)"
@@ -132,7 +133,7 @@ cat > "$FX/ak.sh" <<'EOF'
 source "$FX/kbool.sh" || exit 9
 if [[ $1 == plain ]]; then KBOOL_IMAGE=off kk.image iak; else kk.image iak; fi
 echo "$1 rc=$? ${__KK_UNIT_PID[iak]-image} $(iak.n)"
-source "$FX/kkore/kimage.sh" || exit 9
+kk._image_lib || exit 9     # (kimghit.sh + kimage.sh: the same functions in both dumps)
 kk._img_state "$2" canon
 EOF
 uf_run 'bash "$FX/ak.sh" miss "$FX/ak0.d"; bash "$FX/ak.sh" hit "$FX/ak1.d"; bash "$FX/ak.sh" plain "$FX/ak2.d"; bash "$FX/cmp.sh" "$FX/ak2.d" "$FX/ak1.d"'
@@ -164,8 +165,8 @@ uf_run "$H"'; kk.image ihg; IHG_EVIL=1; ihg._s; echo "uses=$IHG_USES ib2=${IB2_L
 uf_check "(the same hook called outside any hook run loads ib2: the guard is the mark, not the hook)" $?
 
 uf_run "$H; $D"'; kk.image iro 2>/dev/null'
-uf_run "$H; $D"'; readonly IRO_C=1; kk.image iro 2>&1 | head -1'
-[[ $UF_OUT == "kbool: image: 'IRO_C' is readonly in this shell; a normal load (kk.uses iro)" ]]
+uf_run "$H; $D"'; readonly IRO_C=1; kk.image iro 2>&1 | { head -1; cat >/dev/null; }'
+[[ $UF_OUT == "kbool: image: 'IRO_C' exists in this shell already (r): the image would write into it; a normal load (kk.uses iro)" ]]
 uf_check "a name the image assigns is readonly in the caller: a plain load, no image read or written [§8.3]" $?
 uf_run "$H"'; readonly IRO_C=1; kk.image iro; echo "rc=$? c=$IRO_C v=$IRO_V"'
 [[ $UF_OUT == "rc=0 c=1 v=2" ]]

@@ -141,7 +141,7 @@ cat > "$FX/cr.sh" <<'EOF'
 source "$FX/kbool.sh" || exit 9
 if [[ $1 == plain ]]; then KBOOL_IMAGE=off kk.image "$2"; else VERBOSE_KKLASS=debug kk.image "$2" 2>"$3.err"; fi
 echo "$1 rc=$? $("$2.f")"
-source "$FX/kkore/kimage.sh" || exit 9
+kk._image_lib || exit 9     # (kimghit.sh + kimage.sh: the same functions in both dumps)
 kk._img_state "$3" canon
 EOF
 for u in icrs icrp icrh; do

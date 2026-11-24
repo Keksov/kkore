@@ -97,12 +97,12 @@ set "$2"
 if [[ $1 == plain ]]; then KBOOL_IMAGE=off kk.image ia; else kk.image ia; fi
 echo "survived rc=$? pid=${__KK_UNIT_PID[ia]+normal} f=$(ia.f)"
 set +eu
-source "$FX/kkore/kimage.sh" || exit 9
+kk._image_lib || exit 9     # (kimghit.sh + kimage.sh: the same functions in both dumps)
 kk._img_state "$3" canon
 EOF
 uf_run 'bash "$FX/st.sh" miss -e "$FX/s0.d"; bash "$FX/st.sh" plain -e "$FX/plain.d"; :'
 for f in "$FX"/img/ia-*.img; do IMG=$f; done
-REF=${IMG%.img}.ref
+for REF in "${IMG%.img}".*.ref; do :; done     # (NAME.NONCE.ref)
 cp "$IMG" "$FX/img.full"
 cp "$REF" "$FX/ref.full"
 # another key's image: ib's (written by KBOOL_IMAGE_CHECK=dates kk.image ib)
@@ -140,6 +140,8 @@ done
 # a hold, and the image removed (not sourced and undone on every start)
 rm -f "$FX"/img/*.hold
 uf_run 'source "$FX/kbool.sh"; kk.image --rebuild ia'
+for REF in "${IMG%.img}".*.ref; do :; done
+[[ -f $REF ]] || { kt_test_start "the rebuilt image's .ref"; kt_test_fail "none"; }
 cp "$IMG" "$FX/img.full"
 IFS= read -r -d '' Z < "$FX/img.full" || :
 off '__KK_UNITS['; head -c "$OFF" "$FX/img.full" > "$IMG"

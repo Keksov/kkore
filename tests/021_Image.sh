@@ -35,8 +35,8 @@ R='; echo "rc=$?"; ia.f; ib.f; echo "w=$IA_W c=$IA_C i=$IA_I lc=${LC_CTYPE-} pid
 uf_run "$H"'; unset LANG LC_ALL LC_CTYPE; VERBOSE_KKLASS=debug; kk.image ia'"$R"
 if_imgs
 [[ $UF_RC == 0 && $UF_OUT == "kbool: image: no image $FX/img/ia-"*".img yet: a normal load, then an image"$'\n'"kbool: image: wrote $FX/img/ia-"*".img"*$'\n'"rc=0"$'\n''ia.f a b "q" $x 4 v 2 7'$'\n'"ib.f"$'\n'"w=80 c=const i=42 lc=C.UTF-8 pid=normal" \
-   && $IF_IMGS == ia-????????.img && -f $FX/img/${IF_IMGS%.img}.ref ]]
-uf_check "a miss: a normal load (rc 0, the units work), then NAME-HASH.img and its .ref are written [§6.2, §7.1]" $?
+   && $IF_IMGS == ia-????????.img && -f $(echo "$FX/img/${IF_IMGS%.img}".*.ref) ]]
+uf_check "a miss: a normal load (rc 0, the units work), then NAME-HASH.img and its NAME-HASH.NONCE.ref are written [§6.2, §7.1]" $?
 IMG=$FX/img/$IF_IMGS
 
 uf_run "$H"'; unset LANG LC_ALL LC_CTYPE; VERBOSE_KKLASS=debug; kk.image ia'"$R"
@@ -64,7 +64,7 @@ cat > "$FX/both.sh" <<'EOF'
 source "$FX/kbool.sh" || exit 9
 if [[ $1 == plain ]]; then KBOOL_IMAGE=off kk.image ia; else kk.image ia; fi
 if [[ $1 == hit && -n ${__KK_UNIT_PID[ia]+x} ]]; then echo "not a hit"; fi
-source "$FX/kkore/kimage.sh" || exit 9
+kk._image_lib || exit 9     # (kimghit.sh + kimage.sh: the same functions in both dumps)
 kk._img_state "$2" canon
 EOF
 uf_run 'bash "$FX/both.sh" miss "$FX/miss.d"; bash "$FX/both.sh" hit "$FX/hit.d"; bash "$FX/both.sh" plain "$FX/plain.d"; bash "$FX/cmp.sh" "$FX/plain.d" "$FX/hit.d"'
@@ -93,7 +93,7 @@ if_imgs
 [[ $UF_RC == 0 && $UF_OUT == "kbool: image: unit 'ib' is loaded already (chained images: I2b); a normal load (kk.uses ia)"$'\n'"rc=0 loaded" && -z $IF_IMGS ]]
 uf_check "a prior set (a unit loaded before): a plain kk.uses, nothing written (unchained, I2a) [§7.7]" $?
 
-uf_run "$H"'; kk.uses "$FX/kcl/a/helper.sh"; VERBOSE_KKLASS=debug kk.image ia 2>&1 | head -1; kk.image ia; echo "rc=$?"'
+uf_run "$H"'; kk.uses "$FX/kcl/a/helper.sh"; VERBOSE_KKLASS=debug kk.image ia 2>&1 | { head -1; cat >/dev/null; }; kk.image ia; echo "rc=$?"'
 if_imgs
 [[ $UF_OUT == "kbool: image: a file is loaded by path already (chained images: I2b); a normal load (kk.uses ia)"$'\n'"rc=0" && -z $IF_IMGS ]]
 uf_check "a header-less file loaded by path before: a plain kk.uses, nothing written" $?
@@ -117,7 +117,7 @@ uf_check "usage errors (rc 2): two actions, an unknown option after one, --forge
 kt_test_section "021: the flags (IMG-D1, IMG-D2)"
 
 rm -f "$FX"/img/*
-uf_run "$H"'; KBOOL_IMAGE_CHECK=bogus VERBOSE_KKLASS=debug kk.image ib 2>&1 | head -2'
+uf_run "$H"'; KBOOL_IMAGE_CHECK=bogus VERBOSE_KKLASS=debug kk.image ib 2>&1 | { head -2; cat >/dev/null; }'
 case $OSTYPE in msys*|cygwin*) d=dates ;; *) d=stat ;; esac
 want="kbool: image: KBOOL_IMAGE_CHECK=bogus is not stat|dates|hash; using $d"$'\n'"kbool: image: no image "
 [[ $UF_OUT == "$want"* ]]
@@ -133,7 +133,7 @@ if_imgs
 [[ $IF_IMGS == ib-*.img\ ib-*.img\ ib-*.img ]]
 uf_check "the three modes are three keys: three image files [§7.1, IMG-D1]" $?
 
-uf_run "$H"'; KBOOL_IMAGE_CHECK=dates VERBOSE_KKLASS=debug kk.image ib 2>&1 | grep -c "KBOOL_IMAGE_CHECK"; KBOOL_IMAGE_CHAIN=maybe VERBOSE_KKLASS=debug kk.image ib 2>&1 | head -1; KBOOL_IMAGE_CHAIN=off VERBOSE_KKLASS=debug kk.image ib 2>&1 | grep -c CHAIN'
+uf_run "$H"'; KBOOL_IMAGE_CHECK=dates VERBOSE_KKLASS=debug kk.image ib 2>&1 | grep -c "KBOOL_IMAGE_CHECK"; KBOOL_IMAGE_CHAIN=maybe VERBOSE_KKLASS=debug kk.image ib 2>&1 | { head -1; cat >/dev/null; }; KBOOL_IMAGE_CHAIN=off VERBOSE_KKLASS=debug kk.image ib 2>&1 | grep -c CHAIN'
 [[ $UF_OUT == "0"$'\n'"kbool: image: KBOOL_IMAGE_CHAIN=maybe is not on|off; using on"$'\n'"0" ]]
 uf_check "KBOOL_IMAGE_CHECK=dates: no line; KBOOL_IMAGE_CHAIN=maybe: on + a debug line; =off: accepted silently" $?
 
@@ -261,11 +261,11 @@ uf_run "$L"
 [[ $UF_OUT == "wrote FX/loc/own/deeper/ib" ]]
 uf_check "KBOOL_IMAGE_DIR replaces the base (made when missing)" $?
 UF_ENV=(LOCALAPPDATA="$FX/loc/lad" XDG_CACHE_HOME="$FX/loc/xdg" HOME="$FX/loc/home")
-uf_run "$H"'; kk._image_euid() { __kk_im_euid=0; }; VERBOSE_KKLASS=debug kk.image ib 2>&1 | head -1'
+uf_run "$H"'; kk._image_hitlib; kk._image_euid() { __kk_im_euid=0; }; VERBOSE_KKLASS=debug kk.image ib 2>&1 | { head -1; cat >/dev/null; }'
 [[ $UF_OUT == "kbool: image: EUID 0: images are read and written only under KBOOL_IMAGE_DIR; a normal load (kk.uses ib)" ]]
 uf_check "root (EUID 0, pretended by overriding kk._image_euid) without KBOOL_IMAGE_DIR: a plain kk.uses [§8.1]" $?
 UF_ENV=(KBOOL_IMAGE_DIR="$FX/loc/root")
-uf_run "$H"'; kk._image_euid() { __kk_im_euid=0; }; kk.image ib'; uf_run "$H"'; kk._image_euid() { __kk_im_euid=0; }; kk.image ib; echo "${__KK_UNIT_PID[ib]-image} $(echo "$KBOOL_IMAGE_DIR"/ib-*.img)"'
+uf_run "$H"'; kk._image_hitlib; kk._image_euid() { __kk_im_euid=0; }; kk.image ib'; uf_run "$H"'; kk._image_hitlib; kk._image_euid() { __kk_im_euid=0; }; kk.image ib; echo "${__KK_UNIT_PID[ib]-image} $(echo "$KBOOL_IMAGE_DIR"/ib-*.img)"'
 [[ $UF_OUT == "image $FX/loc/root/ib-"*".img" ]]
 uf_check "root with KBOOL_IMAGE_DIR: images are written and read there (EUID is keyed)" $?
 UF_ENV=(KBOOL_IMAGE_DIR="$FX/img" KBOOL_IMAGE_CHECK=dates)
@@ -304,7 +304,7 @@ mv "$B.keep" "$B.img"
 mkdir -p "$FX/loc/real"
 if ln -s "$FX/loc/real" "$FX/loc/link" 2>/dev/null && [[ -L $FX/loc/link ]]; then
     UF_ENV=(KBOOL_IMAGE_DIR="$FX/loc/link")
-    uf_run "$H"'; VERBOSE_KKLASS=debug kk.image ib 2>&1 | head -1'
+    uf_run "$H"'; VERBOSE_KKLASS=debug kk.image ib 2>&1 | { head -1; cat >/dev/null; }'
     [[ $UF_OUT == "kbool: image: untrusted folder: the folder $FX/loc/link is a symbolic link; a normal load (kk.uses ib)" ]]
     uf_check "a symbolic link as the image folder: a plain load, nothing written (no image there: no WARNING)" $?
     UF_ENV=(KBOOL_IMAGE_DIR="$FX/img" KBOOL_IMAGE_CHECK=dates)
