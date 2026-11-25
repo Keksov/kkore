@@ -558,6 +558,15 @@ for d in aa bb; do rm -f "$FX/$d/pq/pq.sh"; rmdir "$FX/$d/pq" "$FX/$d"; done
 UF_OUT="aa=$A bb=$B"
 [[ $A == "$FX/img/pc-"*.img && $B == "$FX/img/pc-"*.img && $A != "$B" ]]
 uf_check "a prior unit from two folders of one path length (FX/aa, FX/bb): two image file names" $?
+# (folders that differ only in a last character — wt1 / wt2: each level's last
+# character is in the digest too; critic N4, I2b fix round 3)
+for d in wt1 wt2; do mkdir -p "$FX/$d/pq"; cp "$FX/kcl/pq/pq.sh" "$FX/$d/pq/pq.sh"; touch -t 202001010000 "$FX/$d/pq/pq.sh"; done
+uf_run "$H"'; kk.uses "$FX/wt1/pq/pq.sh"; kk.image --path pc 2>/dev/null'; A=$UF_OUT
+uf_run "$H"'; kk.uses "$FX/wt2/pq/pq.sh"; kk.image --path pc 2>/dev/null'; B=$UF_OUT
+for d in wt1 wt2; do rm -f "$FX/$d/pq/pq.sh"; rmdir "$FX/$d/pq" "$FX/$d"; done
+UF_OUT="wt1=$A wt2=$B"
+[[ $A == "$FX/img/pc-"*.img && $B == "$FX/img/pc-"*.img && $A != "$B" ]]
+uf_check "a prior unit from two folders that differ only in their last character (FX/wt1, FX/wt2): two image file names" $?
 
 # ---------------------------------------------------------------------------
 kt_test_section "028: holds and pruning per (request, P) (§7.4, §7.5)"
@@ -583,12 +592,29 @@ uf_run "$H"'; kk.uses pb; __KK_IMG_MINLOAD=600000 kk.image --rebuild pc 2>"$FX/e
 [[ $UF_OUT == "kbool: image: no image written: not worth an image: the normal load took "*" ms, under 600000 ms (__KK_IMG_MINLOAD)"$'\n'"1" ]]
 uf_check "a normal load under __KK_IMG_MINLOAD ms: not worth an image — none written, a hold [F6]" $?
 noholds
+# a near miss (the load at least half the threshold) is held 10 minutes — the
+# hold dated 50 minutes back —, a clear miss an hour (I2b fix round 3, K2;
+# __KK_IMG_LOADMS stands for the measured load)
+HA='for f in "$FX"/img/pc-*.hold; do read -r t r < "$f"; echo "age $(( EPOCHSECONDS - t ))"; done'
+uf_run "$H"'; kk.uses pb; __KK_IMG_MINLOAD=100 __KK_IMG_LOADMS=60 kk.image --rebuild pc 2>"$FX/e.txt"; fl "no image written"; fl "held for"; '"$HA"
+A=$UF_OUT
+noholds
+uf_run "$H"'; kk.uses pb; __KK_IMG_MINLOAD=100 __KK_IMG_LOADMS=40 kk.image --rebuild pc 2>"$FX/e.txt"; fl "no image written"; fl "held for"; '"$HA"
+B=$UF_OUT
+UF_OUT="$A | $B"
+a=${A##*age }; b=${B##*age }
+[[ $A == "kbool: image: no image written: not worth an image: the normal load took 60 ms, under 100 ms (__KK_IMG_MINLOAD); a near miss: held 10 minutes"$'\n'"kbool: image: held for 10 minutes: "*"/pc-"*".hold"$'\n'"age "* \
+   && $a == [0-9]* && $a != *[!0-9]* && a -ge 3000 && a -lt 3060 \
+   && $B == "kbool: image: no image written: not worth an image: the normal load took 40 ms, under 100 ms (__KK_IMG_MINLOAD)"$'\n'"kbool: image: held for an hour: "*"/pc-"*".hold"$'\n'"age "* \
+   && $b == [0-9]* && $b != *[!0-9]* && b -lt 60 ]]
+uf_check "not worth it: a near miss (60 of 100 ms) is held 10 minutes, a clear miss (40 of 100) an hour [K2]" $?
+noholds
 uf_run "$H"'; kk.uses pb; __KK_IMG_MINLOAD= kk.image --rebuild pc 2>"$FX/e.txt"; fl "no image written"; ls "$FX/img" | grep -c "^pc-.*\.hold$"'
-[[ $UF_OUT == "kbool: image: no image written: not worth an image: the normal load took "*" ms, a start of the image would cost about "*" ms here (the simulated start "*" ms + the steps before the writer "*" ms): under 1.5 times that"$'\n'"1" ]]
+[[ $UF_OUT == "kbool: image: no image written: not worth an image: the normal load took "*" ms, a start of the image would cost about "*" ms here (the simulated start "*" ms + the steps before the writer "*" ms): under 1.5 times that"*$'\n'"1" ]]
 uf_check "without the seam (chained): pc's few-ms load against its measured start — not worth an image, a hold [G4]" $?
 noholds
 uf_run "$H"'; __KK_IMG_MINLOAD= kk.image --rebuild pq 2>"$FX/e.txt"; fl "no image written"; ls "$FX/img" | grep -c "^pq-.*\.hold$"'
-[[ $UF_OUT == "kbool: image: no image written: not worth an image: the normal load took "*" ms, a start of the image would cost about "*" ms here (the steps before the writer "*" ms): under 1.5 times that"$'\n'"1" ]]
+[[ $UF_OUT == "kbool: image: no image written: not worth an image: the normal load took "*" ms, a start of the image would cost about "*" ms here (the steps before the writer "*" ms): under 1.5 times that"*$'\n'"1" ]]
 uf_check "without the seam (unchained): pq's load against the steps before the writer — not worth an image, a hold [G4]" $?
 for f in "$FX"/img/pq-*.hold; do [[ -e $f ]] && rm -f "$f"; done
 noholds

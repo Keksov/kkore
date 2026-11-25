@@ -201,8 +201,9 @@
 # Not worth an image: a writer whose normal load took less than 1.5 times
 # what a start of the image costs (chained: the fresh process's simulated
 # start, plus the steps of kk.image before the writer; unchained those steps
-# alone) writes none and holds (__KK_IMG_MINLOAD=MS, a test seam, sets an
-# absolute floor instead). A script that builds a class of its own BEFORE
+# alone) writes none and holds — a near miss (the load at least half that)
+# 10 minutes, not an hour: one timing spike — (__KK_IMG_MINLOAD=MS, a test
+# seam, sets an absolute floor instead). A script that builds a class of its own BEFORE
 # loading P gets no chained image either: P's class tables and kklass's
 # _KKLASS_GEN differ from P's own fresh load (no image, a hold).
 # Also a plain kk.uses: inside a unit's load or a settings hook, under `set -a`,

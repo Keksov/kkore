@@ -1726,7 +1726,7 @@ kk._img_write() {
           __kk_imw_v0f="" __kk_imw_k0="" __kk_imw_sh0="" __kk_imw_nord=0 __kk_imw_nset=0 __kk_imw_used="" \
           __kk_imw_pr="" __kk_imw_opt=$- __kk_imw_tag="" __kk_imw_fl="" __kk_imw_t0=0 __kk_imw_fd0="" \
           __kk_imw_fd1="" __kk_imw_trap="" __kk_imw_trp="" __kk_imw_tro="" __kk_imw_trs=0 __kk_imw_hd="" \
-          __kk_imw_wrote=0 __kk_imw_rt="" __kk_imw_now=0 __kk_imw_l0=0 __kk_imw_l1=0
+          __kk_imw_wrote=0 __kk_imw_rt="" __kk_imw_now=0 __kk_imw_l0=0 __kk_imw_l1=0 __kk_imw_htime=""
     local -a __kk_imw_vn=() __kk_imw_kn=() __kk_imw_fo=() __kk_imw_P=() __kk_imw_tp=()
     local -A __kk_imw_pre=() __kk_imw_f0=() __kk_imw_kb=() __kk_imw_hc0=() __kk_imw_hc1=() __kk_imw_res0=()
     __kk_imw_tp[0]=$EPOCHREALTIME
@@ -1909,7 +1909,7 @@ kk._img__after() {
     # (the name: a `stat` that does not work made it the `dates` one)
     __kk_ima_h=$__kk_im_dir/$__kk_im_name.hold
     if [[ -n $__kk_imw_why && -z $__kk_imw_nohold && -n $__kk_imw_t ]]; then
-        kk._image_hold "$__kk_imw_why" "$__kk_imw_um"
+        kk._image_hold "$__kk_imw_why" "$__kk_imw_um" "" "" "$__kk_imw_htime"
         __kk_ima_held=$__kk_ima_h
     elif [[ $__kk_im_act == rebuild && -f $__kk_ima_h && ! -L $__kk_ima_h ]]; then
         __kk_ima_f+=("$__kk_ima_h")
@@ -1926,7 +1926,8 @@ kk._img__after() {
     if (( ${#__kk_ima_f[@]} )); then command rm -f -- "${__kk_ima_f[@]}" 2>/dev/null; fi
     if (( __kk_ima_nc )); then shopt -s nocasematch; fi
     if [[ -n $__kk_imw_why ]]; then kk._image_dbg "no image written: $__kk_imw_why"; fi
-    if [[ -n $__kk_ima_held ]]; then kk._image_dbg "held for an hour: $__kk_ima_held"; fi
+    if [[ -n $__kk_ima_held && -n $__kk_imw_htime ]]; then kk._image_dbg "held for 10 minutes: $__kk_ima_held"
+    elif [[ -n $__kk_ima_held ]]; then kk._image_dbg "held for an hour: $__kk_ima_held"; fi
     if [[ -n $__kk_imw_pr ]]; then kk._image_dbg "writer profile (ms): $__kk_imw_pr"; fi
     return 0
 }
@@ -1949,22 +1950,43 @@ kk._img__after() {
 # nothing): the steps before the writer alone. A chained writer asks twice:
 # without START before it builds (deferred: rc 0), with START once the fresh
 # process ran (kk._img__chainsim). __KK_IMG_MINLOAD=MS (a count; a seam: the
-# suites set 0) replaces the rule by an absolute floor of MS.
+# suites set 0) replaces the rule by an absolute floor of MS. A NEAR miss —
+# the load at least half the threshold (0.75 x the start cost): two single
+# samples from two processes, one spike can make it (critic M4 caveat) — is
+# held 10 minutes instead of an hour (__kk_imw_htime: the hold dated 50
+# minutes back), so a spike keeps e.g. fv.dlg plain for 10 minutes at most,
+# and a load that really sits at the border costs one writer per 10 minutes,
+# not one per start (no hold at all would rerun the writer on every start);
+# a clear miss keeps the hour (I2b fix round 3, K2). __KK_IMG_LOADMS=MS (a
+# test seam, kkore 028) stands for the measured bare load.
 kk._img__worth() {
-    local __kk_imn_m=${__KK_IMG_MINLOAD-} __kk_imn_l __kk_imn_o __kk_imn_c
+    local __kk_imn_m=${__KK_IMG_MINLOAD-} __kk_imn_l __kk_imn_o __kk_imn_c __kk_imn_n
     kk._img__ms "$__kk_imw_l0" "$__kk_imw_l1"
     __kk_imn_l=$__kk_imw_ms
-    if [[ $__kk_imn_m == [0-9]* && $__kk_imn_m != *[!0-9]* && ${#__kk_imn_m} -lt 7 ]]; then
-        (( __kk_imn_l >= 10#$__kk_imn_m )) && return 0
-        __kk_imw_why="not worth an image: the normal load took $__kk_imn_l ms, under $(( 10#$__kk_imn_m )) ms (__KK_IMG_MINLOAD)"
-        return 1
+    if [[ ${__KK_IMG_LOADMS-} == [0-9]* && $__KK_IMG_LOADMS != *[!0-9]* && ${#__KK_IMG_LOADMS} -lt 7 ]]; then
+        __kk_imn_l=$(( 10#$__KK_IMG_LOADMS ))
     fi
-    if (( ! $# )) && [[ -n $__kk_im_prior ]]; then return 0; fi
-    kk._img__ms "${__kk_im_t0:-${__kk_imw_tp[0]}}" "${__kk_imw_tp[0]}"
-    __kk_imn_o=$__kk_imw_ms
-    __kk_imn_c=$(( ${1:-0} + __kk_imn_o ))
-    (( __kk_imn_l * 2 >= __kk_imn_c * 3 )) && return 0
-    __kk_imw_why="not worth an image: the normal load took $__kk_imn_l ms, a start of the image would cost about $__kk_imn_c ms here (${1:+the simulated start ${1} ms + }the steps before the writer $__kk_imn_o ms): under 1.5 times that"
+    # (__kk_imn_n = the threshold in half-ms: the load passes when 2 x load
+    # reaches it, a refusal is a near miss when 4 x load does)
+    if [[ $__kk_imn_m == [0-9]* && $__kk_imn_m != *[!0-9]* && ${#__kk_imn_m} -lt 7 ]]; then
+        __kk_imn_n=$(( 10#$__kk_imn_m * 2 ))
+        __kk_imw_why="not worth an image: the normal load took $__kk_imn_l ms, under $(( 10#$__kk_imn_m )) ms (__KK_IMG_MINLOAD)"
+    else
+        if (( ! $# )) && [[ -n $__kk_im_prior ]]; then __kk_imw_why=""; return 0; fi
+        kk._img__ms "${__kk_im_t0:-${__kk_imw_tp[0]}}" "${__kk_imw_tp[0]}"
+        __kk_imn_o=$__kk_imw_ms
+        __kk_imn_c=$(( ${1:-0} + __kk_imn_o ))
+        __kk_imn_n=$(( __kk_imn_c * 3 ))
+        __kk_imw_why="not worth an image: the normal load took $__kk_imn_l ms, a start of the image would cost about $__kk_imn_c ms here (${1:+the simulated start ${1} ms + }the steps before the writer $__kk_imn_o ms): under 1.5 times that"
+    fi
+    if (( __kk_imn_l * 2 >= __kk_imn_n )); then __kk_imw_why=""; return 0; fi
+    # a near miss (the load at least half the threshold: two single samples
+    # of two processes, a spike can make it — critic M4 caveat): the hold is
+    # dated 50 minutes back, so it lapses after 10 minutes, not an hour
+    if (( __kk_imn_l * 4 >= __kk_imn_n )); then
+        __kk_imw_htime=$(( EPOCHSECONDS - 3000 ))
+        __kk_imw_why+="; a near miss: held 10 minutes"
+    fi
     return 1
 }
 

@@ -221,8 +221,8 @@ kk._image_prep() {
 # key rows NAME=FILE<US>…, FILE lexically normalised) and __kk_im_ph (the
 # same rows for the file-name hash, shorter: NAME alone when FILE is the
 # canonical KBOOL_HOME/kcl/NAME/NAME.sh, NAME/ for KBOOL_HOME/NAME/NAME.sh,
-# else NAME=LENGTH:DIGEST (the path's length; each folder level's length
-# and first character) — the key
+# else NAME=LENGTH:DIGEST (the path's length; each folder level's length,
+# first and last character) — the key
 # string decides validity, the hash only names the file, and FNV costs ~10 µs
 # per character on the laptop). rc 1 (__kk_im_why: a plain kk.uses) when a
 # non-system unit is not complete (loading, or tainted) or not in the order
@@ -261,13 +261,15 @@ kk._image_prior() {
         elif [[ $__kk_n == "$__kk_ip_h/$__kk_ip_n/$__kk_ip_n.sh" ]]; then
             __kk_im_ph+=$__kk_ip_n/$__KK_SEP
         else
-            # (each folder level's length and first character: two checkouts
-            # of one length in other folders get other rows — critic N4)
+            # (each folder level's length, first and last character: two
+            # checkouts of one length in other folders — aa / bb, wt1 / wt2,
+            # proj-v1 / proj-v2 — get other rows; critic N4, I2b fix round 3:
+            # three expansions per level, no per-character loop)
             __kk_ip_e="" __kk_ip_s=${__kk_n%/*}/
             while [[ -n $__kk_ip_s ]]; do
                 __kk_ip_t=${__kk_ip_s%%/*}
                 __kk_ip_s=${__kk_ip_s#*/}
-                __kk_ip_e+=${#__kk_ip_t}${__kk_ip_t:0:1}
+                __kk_ip_e+=${#__kk_ip_t}${__kk_ip_t:0:1}${__kk_ip_t: -1}
             done
             __kk_im_ph+=$__kk_ip_n=${#__kk_n}:$__kk_ip_e$__KK_SEP
         fi
@@ -461,24 +463,25 @@ kk._image_held() {
     kk._image_hfile "$__kk_im_dir/$__kk_im_name.hold"
 }
 
-# kk._image_hold REASON [UMASK [FILE [drop]]] — write FILE (default
-# NAME.hold) as `EPOCHSECONDS REASON` under umask 077: with UMASK (the
+# kk._image_hold REASON [UMASK [FILE [drop [TIME]]]] — write FILE (default
+# NAME.hold) as `TIME REASON` (TIME default EPOCHSECONDS; the writer dates a
+# near miss of kk._img__worth 50 minutes back) under umask 077: with UMASK (the
 # caller's, known to the writer) fork-free, else in a subshell, which with
 # `drop` also removes the image and its .ref (a damaged image that failed on
 # its start is not sourced and undone again on every start of the hour).
 # Nothing in an untrusted or missing folder, or over a symbolic link. Silent.
 kk._image_hold() {
-    local __kk_ih_f=${3:-$__kk_im_dir/$__kk_im_name.hold} __kk_ih_r=${1//$'\n'/ }
+    local __kk_ih_f=${3:-$__kk_im_dir/$__kk_im_name.hold} __kk_ih_r=${1//$'\n'/ } __kk_ih_t=${5:-$EPOCHSECONDS}
     [[ -z $__kk_im_bad && -d $__kk_im_dir && ! -L $__kk_ih_f ]] || return 0
     # (never fatal under the caller's set -e: a hold that cannot be written —
     # a folder in its place, a full disk — is no reason to end the script;
     # critic M2)
     if [[ -n ${2-} ]]; then
         umask 077
-        { printf '%s %s\n' "$EPOCHSECONDS" "$__kk_ih_r" > "$__kk_ih_f"; } 2>/dev/null || :
+        { printf '%s %s\n' "$__kk_ih_t" "$__kk_ih_r" > "$__kk_ih_f"; } 2>/dev/null || :
         umask "$2"
     else
-        ( set +e; umask 077; printf '%s %s\n' "$EPOCHSECONDS" "$__kk_ih_r" > "$__kk_ih_f"
+        ( set +e; umask 077; printf '%s %s\n' "$__kk_ih_t" "$__kk_ih_r" > "$__kk_ih_f"
           if [[ ${4-} == drop ]]; then command rm -f -- "$__kk_im_img" "$__kk_im_ref"; fi ) 2>/dev/null || :
     fi
     return 0
