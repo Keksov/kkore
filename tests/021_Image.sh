@@ -3,7 +3,8 @@
 # I2a-1: unchained, `dates`): the contract — a miss writes, the next start
 # hits and leaves the state a normal load leaves (the kkore state dump, the
 # allow-list in image_fixture.sh's cmp.sh); not applicable (KBOOL_IMAGE=off,
-# a prior set, inside a unit's load, set -a); the flags and their debug lines;
+# KBOOL_IMAGE_CHAIN=off with a prior set, inside a unit's load, set -a; chained
+# images: 028_ImageChain.sh); the flags and their debug lines;
 # the image folder (the location chain with each variable unset in turn, root
 # only under KBOOL_IMAGE_DIR); the trust checks and their one WARNING. The
 # start itself (staleness, undo, hooks, forks, refusals) is 022_ImageStart.sh.
@@ -88,15 +89,15 @@ if_imgs
 [[ $UF_RC == 0 && $UF_OUT == "kbool: image: KBOOL_IMAGE=off; a normal load (kk.uses ia)"$'\n'"rc=0"$'\n'"rc=0" && -z $IF_IMGS ]]
 uf_check "KBOOL_IMAGE=off (and 0): a plain kk.uses (rc 0), a debug line, no image" $?
 
-uf_run "$H"'; kk.uses ib; VERBOSE_KKLASS=debug kk.image ia; echo "rc=$? ${__KK_UNITS[ia]+loaded}"'
+uf_run "$H"'; kk.uses ib; KBOOL_IMAGE_CHAIN=off VERBOSE_KKLASS=debug kk.image ia; echo "rc=$? ${__KK_UNITS[ia]+loaded}"'
 if_imgs
-[[ $UF_RC == 0 && $UF_OUT == "kbool: image: unit 'ib' is loaded already (chained images: I2b); a normal load (kk.uses ia)"$'\n'"rc=0 loaded" && -z $IF_IMGS ]]
-uf_check "a prior set (a unit loaded before): a plain kk.uses, nothing written (unchained, I2a) [§7.7]" $?
+[[ $UF_RC == 0 && $UF_OUT == "kbool: image: KBOOL_IMAGE_CHAIN=off and unit 'ib' is loaded already; a normal load (kk.uses ia)"$'\n'"rc=0 loaded" && -z $IF_IMGS ]]
+uf_check "KBOOL_IMAGE_CHAIN=off and a prior set (a unit loaded before): a plain kk.uses, nothing written [§7.7] (chained images: 028)" $?
 
 uf_run "$H"'; kk.uses "$FX/kcl/a/helper.sh"; VERBOSE_KKLASS=debug kk.image ia 2>&1 | { head -1; cat >/dev/null; }; kk.image ia; echo "rc=$?"'
 if_imgs
-[[ $UF_OUT == "kbool: image: a file is loaded by path already (chained images: I2b); a normal load (kk.uses ia)"$'\n'"rc=0" && -z $IF_IMGS ]]
-uf_check "a header-less file loaded by path before: a plain kk.uses, nothing written" $?
+[[ $UF_OUT == "kbool: image: a file without a unit header is loaded by path already (it cannot be part of a prior set); a normal load (kk.uses ia)"$'\n'"rc=0" && -z $IF_IMGS ]]
+uf_check "a header-less file loaded by path before: a plain kk.uses, nothing written (no prior set can hold it)" $?
 
 uf_run "$H"'; VERBOSE_KKLASS=debug kk.image iin; echo "rc=$? inner=$IIN_RC"'
 if_imgs

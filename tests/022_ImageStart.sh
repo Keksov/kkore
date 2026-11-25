@@ -195,8 +195,8 @@ kt_test_section "022: no image (the refusals of I2a-1, §6.3)"
 declare -A RF=(
     [iex]="the load exported IEX_V outside the settings hooks"
     [itr]="the load changed the shell state: trap"
-    [ichg]="the load changed the existing variable ICHG_V outside the settings hooks (chained deltas: I2b)"
-    [ifn]="the load redefined an existing function (chained deltas: I2b)"
+    [ichg]="the load changed the existing variable ICHG_V outside the settings hooks"
+    [ifn]="the load redefined an existing function"
     [ifail]="the load failed (rc 3)"
 )
 for u in iex itr ichg ifn ifail; do

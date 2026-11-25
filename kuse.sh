@@ -95,8 +95,8 @@
 #                           applicable (nothing printed when there is no path);
 #                           2 a usage error (two actions, an unknown option).
 #
-# Load images (stage I2a of the plan: unchained — the first load of a script).
-# Flags, read on every call:
+# Load images (stages I2a, I2b of the plan: an image of a script's first load,
+# and chained images on top of units loaded before). Flags, read on every call:
 #   KBOOL_IMAGE=off|0       every kk.image is a plain kk.uses.
 #   KBOOL_IMAGE_DIR=DIR     the image folder (else, on Linux / macOS / BSD,
 #                           $XDG_CACHE_HOME/kbool/image/v1 or ~/.cache/kbool/image/v1;
@@ -148,8 +148,37 @@
 #                           stat / cksum not on PATH, or a stat that takes
 #                           neither -c nor -f (the writer finds that out and
 #                           leaves FOLDER/stat.hold for an hour): runs as dates.
-#   KBOOL_IMAGE_CHAIN=on|off  parsed; for now any unit already loaded (but kbool's
-#                           own) makes kk.image a plain kk.uses.
+#   KBOOL_IMAGE_CHAIN=on|off  on (the default): an image may sit on top of the
+#                           units loaded before kk.image — the prior set P, the
+#                           non-system units registered complete, in load order
+#                           (__KK_UNIT_ORDER); P's names and files are key rows
+#                           (`kk.uses a; kk.image b`, `kk.image b`, another P or
+#                           P in another order: four images) and P's files are
+#                           stamped. off: any such unit makes kk.image a plain
+#                           kk.uses. Another value: on, and a debug line.
+# A chained image holds only this call's delta: its units, and its changes to
+# slots that existed before — kkore's tables, P's kklass tables and
+# registries, scalars (element by element, an element removed too), a
+# function of P's it redefined — each with its earlier value (a function: its
+# earlier text) in the base list. A start checks the base before sourcing,
+# fork-free (bash < 5.3 reads a function's text through the image's NAME.fnc):
+# a slot that differs is a plain kk.uses, nothing written; the undo of a
+# failed start puts every base slot back. The writer proves such an image in
+# ONE fresh process: P loaded by its files as its own load leaves it, the
+# image applied as a start applies it, the state compared with this one
+# (names only this script made are ignored) — so an image never depends on
+# what the script changed in P before kk.image (a P class changed by
+# defineMethod, a P variable, kklass's scratch globals METHOD_BODY /
+# METHOD_WRAPPER left by a class the script built: no image, a hold); the M1 probe below runs
+# there too, on top of P. Limit (plan R13, documented): the base check sees
+# the slots the delta writes, not what this call's load READ from P — a script
+# that changes such state in P (a variable a unit copies, a parent class's
+# method) after an image was made gets the image made against the unchanged
+# P; set KBOOL_IMAGE_CHAIN=off for such a program. A chained load is refused
+# (no image, a hold) when it changes the hash table, an exported variable,
+# the attributes of a variable or removes one; a header-less file loaded by
+# path before kk.image makes it a plain kk.uses. Holds and pruning go by
+# (request, P, mode): the image file name hashes all three.
 # Also a plain kk.uses: inside a unit's load or a settings hook, under `set -a`,
 # a relative KBOOL_IMAGE_DIR, a folder that cannot be made (its deepest
 # existing level not writable: no writer either) or exists unwritable (no
@@ -165,7 +194,8 @@
 # image: …` line for every reason. An image holds this call's units: their
 # functions, the variables they created (readonly flags last), their kklass
 # tables and their kkore registration (last, with the earlier value of every
-# kkore slot it changes), its dependency edges (also a dependency NOT found,
+# pre-existing slot it changes: kkore's; chained, P's too), its dependency
+# edges (also a dependency NOT found,
 # a failed `kk.uses --optional`: found later — a unit file with the header —, the image is stale). Never
 # held: kbool.sh's state, settings hook variables (the hooks run again),
 # exports, __kk_ft, the name index and caller-keyed tables, __KK_UNIT_PID (pid
@@ -176,8 +206,8 @@
 # changes exports, traps, options, aliases, umask, function attributes
 # (exported, traced, readonly), disabled builtins (enable -n), completions,
 # the hash table (unless its settings hooks make the change: they run on every
-# start), an existing function or (non-kkore) variable outside the hooks;
-# sets, when it is absent, a variable that existed before the load (an
+# start), an existing function or (non-kkore) variable outside the hooks
+# (unchained; chained, a change becomes a delta, above); sets, when it is absent, a variable that existed before the load (an
 # environment preset of a unit's internal `_` default, a caller's variable
 # hiding a unit global — the image would lack it): candidates are the
 # caller's variables and exported names (not bash's, the environment's,
@@ -189,8 +219,8 @@
 # job or a coprocess; leaves a file descriptor open or closes one (kklass's
 # pair excepted); a stamped file has a future mtime (or, stat, ctime); a
 # function holds a CR byte this parser drops that kklass's kk._fn_text_cr
-# cannot rewrite; bash < 5.2 and a function text with `&> "$` (IMG-D9); or a
-# unit was used (or forgotten) before in this shell. Not compared: resource
+# cannot rewrite; bash < 5.2 and a function text with `&> "$` (IMG-D9); or
+# (unchained) a unit was used (or forgotten) before in this shell. Not compared: resource
 # limits (ulimit), the directory stack.
 # A damaged image is undone and loaded normally — but a flipped byte that
 # still parses is not detected, and one in an indexed subscript or an integer
@@ -1452,8 +1482,9 @@ kk._uses() {
 # a miss, a failed start or --forget (kk._image_lib). Locals: __kk_im_* in
 # kk.image (the helpers of both files write them), the image header's
 # __kk_img_* in kk._image_hit, which sources the image; every name on the
-# stack while kimage.sh dumps the state starts with __kk_im. Unchained only
-# (stage I2a): chaining is I2b.
+# stack while kimage.sh dumps the state starts with __kk_im. Chained images
+# (I2b): the prior set in kimghit.sh kk._image_prior, the deltas and the
+# fresh-process simulation in kimage.sh.
 
 # kk.image [--rebuild | --forget | --path] [--optional] [UNIT...] — see the header.
 kk.image() {
@@ -1465,8 +1496,8 @@ kk.image() {
           __kk_im_mk=0 __kk_im_bad="" __kk_im_lv="" __kk_im_ml="" __kk_im_img="" __kk_im_ref="" __kk_im_key="" \
           __kk_im_name="" __kk_im_h="" __kk_im_cdir="" __kk_im_req="" __kk_im_rn="" __kk_im_rh="" __kk_im_files="" \
           __kk_im_fam=- __kk_im_act="" __kk_im_from="" __kk_im_wt="" __kk_im_stale=0 __kk_im_modes=0 \
-          __kk_im_so="" __kk_im_hr="" __kk_im_rc=0 __kk_im_o=0 __kk_im_tool=""
-    local -a __kk_im_reqf=() __kk_im_reqk=() __kk_im_args=()
+          __kk_im_so="" __kk_im_hr="" __kk_im_rc=0 __kk_im_o=0 __kk_im_tool="" __kk_im_pn="" __kk_im_prior="" __kk_im_ph=""
+    local -a __kk_im_reqf=() __kk_im_reqk=() __kk_im_args=() __kk_im_pf=()
     while [[ ${1-} == --* ]]; do
         case $1 in
             --rebuild|--forget|--path)
