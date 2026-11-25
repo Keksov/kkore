@@ -167,7 +167,9 @@
 # differs is a plain kk.uses, nothing written; the undo of a failed start puts
 # every base slot back. The base list also holds the READ base: every
 # variable of P's that this call's unit files name as a word (comments cut) —
-# P's load made it, or it came from the environment — with its state before
+# P's load made it, or it came from the environment and P's own files assign
+# it (P's load may have defaulted it; the request's own environment names,
+# NO_COLOR say, are no P state) — with its state before
 # the load (a scalar's value or unset, an indexed array's element count and
 # last index, an associative one's count; not bash's own, RESULT, kkore's or
 # a hook VAR), so a script that changed such state after the image was made
@@ -196,10 +198,13 @@
 # go by (request, P, mode): the image file name hashes all three, so a hold
 # is shared by every script with that key — one whose load is refused (a
 # variable it changed in P) holds the same key for a clean one for an hour.
-# Not worth an image: a writer whose normal load took less than 50 ms writes
-# none and holds (an image start costs about as much: tstopwatch on a 20-unit
-# P hit in 59-66 ms where its plain load took 36 ms, Git-bash on the laptop;
-# __KK_IMG_MINLOAD=MS, a test seam, sets another threshold).
+# Not worth an image: a writer whose normal load took less than 1.5 times
+# what a start of the image costs (chained: the fresh process's simulated
+# start, plus the steps of kk.image before the writer; unchained those steps
+# alone) writes none and holds (__KK_IMG_MINLOAD=MS, a test seam, sets an
+# absolute floor instead). A script that builds a class of its own BEFORE
+# loading P gets no chained image either: P's class tables and kklass's
+# _KKLASS_GEN differ from P's own fresh load (no image, a hold).
 # Also a plain kk.uses: inside a unit's load or a settings hook, under `set -a`,
 # a relative KBOOL_IMAGE_DIR, a folder that cannot be made (its deepest
 # existing level not writable: no writer either) or exists unwritable (no
@@ -1524,7 +1529,7 @@ kk.image() {
         [[ -z ${KBOOL_HOME-} || ! -f ${KBOOL_HOME-}/kbool.sh ]] || source "$KBOOL_HOME/kbool.sh" || return
         [[ ${__KK_LOADED[@]@a} == A ]] || { printf 'kbool: error: kk.image %s: kbool.sh is not loaded\n' "$*" >&2; return 2; }
     fi
-    local __kk_im_caller=${BASH_SOURCE[1]-} __kk_im_why="" __kk_im_mode=dates __kk_im_euid=0 __kk_im_dir="" \
+    local __kk_im_t0=$EPOCHREALTIME __kk_im_caller=${BASH_SOURCE[1]-} __kk_im_why="" __kk_im_mode=dates __kk_im_euid=0 __kk_im_dir="" \
           __kk_im_mk=0 __kk_im_bad="" __kk_im_lv="" __kk_im_ml="" __kk_im_img="" __kk_im_ref="" __kk_im_key="" \
           __kk_im_name="" __kk_im_h="" __kk_im_cdir="" __kk_im_req="" __kk_im_rn="" __kk_im_rh="" __kk_im_files="" \
           __kk_im_fam=- __kk_im_act="" __kk_im_from="" __kk_im_wt="" __kk_im_stale=0 __kk_im_modes=0 \

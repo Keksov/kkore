@@ -221,13 +221,14 @@ kk._image_prep() {
 # key rows NAME=FILE<US>…, FILE lexically normalised) and __kk_im_ph (the
 # same rows for the file-name hash, shorter: NAME alone when FILE is the
 # canonical KBOOL_HOME/kcl/NAME/NAME.sh, NAME/ for KBOOL_HOME/NAME/NAME.sh,
-# else NAME=LENGTH:FOLDER (the path's length, its folder's name) — the key
+# else NAME=LENGTH:DIGEST (the path's length; each folder level's length
+# and first character) — the key
 # string decides validity, the hash only names the file, and FNV costs ~10 µs
 # per character on the laptop). rc 1 (__kk_im_why: a plain kk.uses) when a
 # non-system unit is not complete (loading, or tainted) or not in the order
 # list, or a header-less file was loaded by path (no unit: not replayable).
 kk._image_prior() {
-    local __kk_ip_e __kk_ip_n __kk_ip_c=0 __kk_ip_k=0 __kk_ip_h __kk_n
+    local __kk_ip_e __kk_ip_n __kk_ip_c=0 __kk_ip_k=0 __kk_ip_h __kk_ip_s __kk_ip_t __kk_n
     __kk_im_pn="" __kk_im_prior="" __kk_im_ph=""
     __kk_im_pf=()
     if (( ${#__KK_UNIT_FILES[@]} )); then
@@ -252,7 +253,7 @@ kk._image_prior() {
         __kk_im_pn+=+$__kk_ip_n
         # (the file-name hash's row: the name alone for KBOOL_HOME/kcl/N/N.sh,
         # `N/` for KBOOL_HOME/N/N.sh — two places, two rows (F7) —, else the
-        # name, the path's length and its folder's name: a cheap digest, as the
+        # name, the path's length and a digest of its folder levels: cheap, as the
         # hash runs per character (~10 µs each) and only names the file; the
         # key's full rows decide, a collision costs a rewrite — F6)
         if [[ $__kk_n == "$__kk_ip_h/kcl/$__kk_ip_n/$__kk_ip_n.sh" ]]; then
@@ -260,8 +261,15 @@ kk._image_prior() {
         elif [[ $__kk_n == "$__kk_ip_h/$__kk_ip_n/$__kk_ip_n.sh" ]]; then
             __kk_im_ph+=$__kk_ip_n/$__KK_SEP
         else
-            __kk_ip_e=${__kk_n%/*}
-            __kk_im_ph+=$__kk_ip_n=${#__kk_n}:${__kk_ip_e##*/}$__KK_SEP
+            # (each folder level's length and first character: two checkouts
+            # of one length in other folders get other rows — critic N4)
+            __kk_ip_e="" __kk_ip_s=${__kk_n%/*}/
+            while [[ -n $__kk_ip_s ]]; do
+                __kk_ip_t=${__kk_ip_s%%/*}
+                __kk_ip_s=${__kk_ip_s#*/}
+                __kk_ip_e+=${#__kk_ip_t}${__kk_ip_t:0:1}
+            done
+            __kk_im_ph+=$__kk_ip_n=${#__kk_n}:$__kk_ip_e$__KK_SEP
         fi
     done
     __kk_im_pn=${__kk_im_pn#+}
@@ -898,10 +906,11 @@ kk._image__fits() {
     #      BEFORE a key is used (an associative key on a variable that is not
     #      associative is arithmetic: R14); an indexed array takes digits only;
     #      the element read through an eval of the table's own name with the
-    #      key in a variable — no nameref (bash 5.1 resolves NAME[KEY] through
-    #      a nameref by re-reading the text: a key holding `]` is a fatal "bad
-    #      array subscript", `@` every element, `$(` runs; CI 45564636006),
-    #      no `${!X}` indirection (the same text re-read on every bash);
+    #      key in a variable — no nameref (a precaution of fix round 1, whose
+    #      guess that bash 5.1 re-reads `ref[KEY]` as text was disproved: the
+    #      5.1 death was the image's own removal loop, kimage.sh
+    #      kk._img__vdelta, fix round 2), no `${!X}` indirection (a key text
+    #      `$(`, `]`, `@` is re-read there on every bash);
     #   s  the scalar NAME;
     #   f  the function NAME, VALUE its earlier `declare -f` text
     #      (kk._image__fntext);

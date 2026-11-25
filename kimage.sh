@@ -70,8 +70,9 @@
 #      the variables of P's that this call's unit files name become the READ
 #      base, `r` entries with their state before the load, and the temp image
 #      is written again with them: kk._img__rbase); a bare load under
-#      __KK_IMG_MINLOAD ms (50) writes nothing first (kk._img__worth: not
-#      worth an image, a hold);
+#      1.5 times what a start would cost (the simulated start + the steps
+#      before the writer) writes nothing (kk._img__worth: not worth an
+#      image, a hold);
 #   5. the image text (format v1, §6.1, under LC_ALL=C) written by ONE printf
 #      into NAME.tmp.TAG.PID.RANDOM.img (umask 077, noclobber), rc checked
 #      (with NAME.fnc when the image redefines a function: the starts' text
@@ -815,6 +816,37 @@ kk._img__m1scan() {
     return 0
 }
 
+# kk._img__passigns FILE... -> __kk_im9_pa: the names among __kk_im9_ev
+# (kk._img_kid's environment names this call's unit files name) that the
+# FILEs — P's — ASSIGN once comments are cut: `NAME=`, `NAME+=`,
+# `NAME[…]=`, `${NAME:=`, `${NAME=`, or NAME after declare / typeset /
+# readonly / export (with options and other names before it). Such a name
+# can be P's own variable that its load defaulted from the environment (an
+# exported preset of P's default), so its state is a read base; a name P's
+# files only mention (`${!T@}`, a word in a string) is not (critic N2, I2b
+# fix round 2). One regular expression match per name over P's text (C
+# regexec, linear).
+kk._img__passigns() {
+    local - LC_ALL=C __kk_imo_t="" __kk_imo_c __kk_imo_f __kk_imo_x __kk_imo_r IFS=$'\n'
+    local -a __kk_imo_l=()
+    set -f
+    __kk_im9_pa=()
+    for __kk_imo_f; do
+        __kk_imo_c=""
+        { read -r -N 268435456 __kk_imo_c < "$__kk_imo_f"; } 2>/dev/null || :
+        __kk_imo_l=($__kk_imo_c)
+        __kk_imo_l=("${__kk_imo_l[@]/#\#*/}")
+        printf -v __kk_imo_c '%s\n' "${__kk_imo_l[@]/%[[:space:]]#*/}"
+        __kk_imo_t+=$'\n'$__kk_imo_c
+    done
+    for __kk_imo_x in "${__kk_im9_ev[@]}"; do
+        [[ $__kk_imo_x == [A-Za-z_]* && $__kk_imo_x != *[!A-Za-z0-9_]* ]] || continue
+        __kk_imo_r="(^|[^A-Za-z0-9_\$])$__kk_imo_x(\\+?=|\\[[^]]*\\]\\+?=)|\\{$__kk_imo_x:?=|(declare|typeset|readonly|export)([[:blank:]]+-[A-Za-z]+)*([[:blank:]]+[A-Za-z_][A-Za-z0-9_]*(=[^[:space:];]*)?)*[[:blank:]]+$__kk_imo_x([[:space:]=;]|\$)"
+        [[ $__kk_imo_t =~ $__kk_imo_r ]] && __kk_im9_pa+=("$__kk_imo_x")
+    done
+    return 0
+}
+
 # kk._img__words SET FILE... — the caller's associative array SET = the words
 # (runs of anything but blanks and punctuation) of the FILEs once their `#`
 # comment lines and trailing comments are cut: kk._img__m1scan's text, split
@@ -983,7 +1015,7 @@ kk._img_kid() {
     local __kk_im9_m=$1 __kk_im9_o=$2 __kk_im9_cl=$3 __kk_im9_cf=$4 __kk_im9_ff=$5 __kk_im9_um=$6 __kk_im9_wp=$7 \
           __kk_im9_used=$8 __kk_im9_img=$9 __kk_im9_dir=${10} __kk_im9_nm=${11} __kk_im9_np=${12} __kk_im9_x __kk_im9_r=0 \
           __kk_im9_k __kk_im9_b=" " __kk_im9_out="" __kk_im9_t=$EPOCHREALTIME __kk_im9_tt="" __kk_n
-    local -a __kk_im9_P=() __kk_im9_c=() __kk_im9_mt=() __kk_im9_fl=() __kk_im9_v=()
+    local -a __kk_im9_P=() __kk_im9_c=() __kk_im9_mt=() __kk_im9_fl=() __kk_im9_v=() __kk_im9_ev=() __kk_im9_pf=() __kk_im9_pa=()
     local -A __kk_im9_pre=() __kk_im9_aft=() __kk_im9_wd=()
     shift 12
     __kk_im9_P=("${@:1:__kk_im9_np}")
@@ -1036,6 +1068,13 @@ kk._img_kid() {
             fi
         fi
         __kk_im9_r=0
+        # (`h MS`: what the simulated start cost, kk._img__kidsim's OUT.ht)
+        __kk_im9_x=""
+        { IFS= read -r __kk_im9_x < "$__kk_im9_o.ht"; } 2>/dev/null || :
+        if [[ $__kk_im9_x == [0-9]*[.,]*" "[0-9]*[.,]* && $__kk_im9_x != *[!0-9.,\ ]* ]]; then
+            kk._img__ms "${__kk_im9_x% *}" "${__kk_im9_x#* }"
+            __kk_im9_out+="h $__kk_imw_ms"$'\n'
+        fi
         kk._img__kidms sim
         # M1 on top of P: P's own variables are no candidates (every start has them)
         umask 077
@@ -1053,13 +1092,22 @@ kk._img_kid() {
         # load made here that they name (kk._img__chainsim records their
         # state before this load; a start compares it: I2b fix round, F2)
         kk._img__words __kk_im9_wd "${__kk_im9_fl[@]}" 2>/dev/null
-        # (an M1 candidate this process has from its environment is a read
-        # too: P's load may have taken it — an exported preset of P's default)
+        # (an M1 candidate this process has from its environment is a read of
+        # P's state only when P's own files ASSIGN it — P's load may have
+        # defaulted it: an exported preset of P's default; the request's own
+        # reads of the environment are no P state, nor a name P's files only
+        # mention: critic N2 — I2b fix round 2; P's files are read only when
+        # such a candidate exists, kk._img__passigns)
         for __kk_im9_x in "${__kk_im9_v[@]}"; do
             [[ -n ${__kk_im9_wd[$__kk_im9_x]-} ]] || continue
             __kk_im9_mt+=("$__kk_im9_x")
-            [[ -z ${__kk_im9_pre[$__kk_im9_x]-} ]] || __kk_im9_out+="r $__kk_im9_x"$'\n'
+            [[ -z ${__kk_im9_pre[$__kk_im9_x]-} ]] || __kk_im9_ev+=("$__kk_im9_x")
         done
+        if (( ${#__kk_im9_ev[@]} )); then
+            __kk_im9_pf=("${__kk_im9_P[@]#[us]:}")
+            kk._img__passigns "${__kk_im9_pf[@]}" 2>/dev/null
+            for __kk_im9_x in "${__kk_im9_pa[@]}"; do __kk_im9_out+="r $__kk_im9_x"$'\n'; done
+        fi
         for __kk_im9_x in "${!__kk_im9_aft[@]}"; do
             [[ -z ${__kk_im9_pre[$__kk_im9_x]-} && -n ${__kk_im9_wd[$__kk_im9_x]-} ]] && __kk_im9_out+="r $__kk_im9_x"$'\n'
         done
@@ -1125,6 +1173,14 @@ kk._img__kidsim() {
     # (a default reason first: a fatal error below ends this subshell before
     # it writes one — kk._img_kid then names the rc)
     umask 077; { printf "(started)" > "$__kk_im9_o.why"; } 2>/dev/null; umask "$__kk_im9_um"
+    # (__KK_IMG_KIDX non-empty in the environment: an xtrace of this subshell
+    # on the fresh process's stderr, which __KK_IMG_KIDERR=FILE keeps — a CI
+    # diagnosis seam, kkore 028 sets both on bash < 5.2: I2b fix round 2)
+    local __kk_im_x4=${PS4+x} __kk_im_p4=${PS4-}
+    if [[ -n ${__KK_IMG_KIDX-} ]]; then PS4='+ ${BASH_SOURCE##*/}:${LINENO}: '; set -x; fi
+    # (what a start of this image costs here: the header, the checks, the
+    # source and the hooks — kk._img__worth compares the load with it)
+    local __kk_im_t0=$EPOCHREALTIME
     if ! kk._img__kidfit; then
         umask 077; { printf '%s' "$__kk_im_why" > "$__kk_im9_o.why"; } 2>/dev/null
         return 1
@@ -1141,10 +1197,16 @@ kk._img__kidsim() {
         { printf '%s' "$__kk_im_why" > "$__kk_im9_o.why"; } 2>/dev/null
         return 1
     fi
+    { printf '%s %s\n' "$__kk_im_t0" "$EPOCHREALTIME" > "$__kk_im9_o.ht"; } 2>/dev/null
     for __kk_im_y in "${!__KK_SETTINGS_VARS[@]}"; do
         [[ ! -R $__kk_im_y && ${!__kk_im_y@a} != *[aA]* ]] || continue
         if [[ ${!__kk_im_y-} == "$$" || ${!__kk_im_y-} == "$BASHPID" ]]; then printf -v "$__kk_im_y" '%s' "$__kk_im9_wp"; fi
     done
+    # (the trace off and PS4 as it was before the dump: they are no image state)
+    if [[ -n ${__KK_IMG_KIDX-} ]]; then
+        set +x
+        if [[ -n $__kk_im_x4 ]]; then PS4=$__kk_im_p4; else unset PS4; fi
+    fi
     kk._img_state "$__kk_im9_o.sim" xproc
     return 0
 }
@@ -1264,7 +1326,7 @@ kk._img__rbase() {
 # changed by defineMethod differs there: R13, the writer's side) — and runs
 # the M1 steps on top of P. rc 1 (__kk_imw_why, a hold) on any difference.
 kk._img__chainsim() {
-    local __kk_imz_x __kk_imz_s="" __kk_imz_w="" __kk_imz_p="" __kk_imz_m="" __kk_imz_d=""
+    local __kk_imz_x __kk_imz_s="" __kk_imz_w="" __kk_imz_p="" __kk_imz_m="" __kk_imz_d="" __kk_imz_h=""
     local -a __kk_ima_l=() __kk_imz_f=() __kk_imz_c=() __kk_imz_q=() __kk_imz_rb=()
     local -A __kk_imz_b=()
     # (the M1 candidates but the names the base list covers: a start checks
@@ -1302,10 +1364,12 @@ kk._img__chainsim() {
             "s "*) __kk_imz_s=${__kk_imz_x#s } ;;
             "m "*) __kk_imz_m=${__kk_imz_x#m } ;;
             "t "*) __kk_imw_pr+=" (${__kk_imz_x#t })" ;;
+            "h "*) __kk_imz_h=${__kk_imz_x#h } ;;
             "r "*) __kk_imz_rb+=("${__kk_imz_x#r }") ;;
             "end "*) __kk_imz_w=${__kk_imz_x#end } ;;
         esac
     done
+    [[ -z $__kk_imz_h ]] || __kk_imw_pr+=" (a start $__kk_imz_h ms)"
     if [[ -z $__kk_imz_w ]]; then
         __kk_imw_why="the fresh-process simulation gave no result"; return 1
     elif [[ $__kk_imz_w == p* ]]; then
@@ -1329,6 +1393,8 @@ kk._img__chainsim() {
     if [[ $__kk_imz_m != 0 ]]; then
         kk._img__m1check "the fresh-process probe of the variables of before the load" || return 1
     fi
+    # worth it against what its start cost in the fresh process (`h MS`)
+    kk._img__worth "${__kk_imz_h:-0}" || return 1
     # the read base: the fresh process named them (`r NAME`)
     if (( ${#__kk_imz_rb[@]} )); then
         kk._img__rbase "${__kk_imz_rb[@]}" || return 1
@@ -1337,9 +1403,9 @@ kk._img__chainsim() {
 }
 
 # kk._img__hcopy ASSOC — the caller's ASSOC = the hash table (BASH_CMDS).
-# (ASSOC named in an eval, the key in a variable: no nameref — bash 5.1
-# re-reads `ref[KEY]` as text, so a command name holding `]` would be a fatal
-# "bad array subscript": I2b fix round F1)
+# (ASSOC named in an eval, the key in a variable, no nameref: a precaution of
+# I2b fix round 1 for keys holding `]` / `@` / `$(`, which bash 5.1 was
+# suspected — not shown — to re-read through a nameref)
 kk._img__hcopy() {
     local __kk_imh_k
     eval "$1=()"
@@ -1397,8 +1463,8 @@ kk._img__vdelta() {
         __kk_imw_why="the load changed the existing variable $__kk_imv_n (-$__kk_imv_f1: a nameref or readonly)"; return 1
     fi
     if [[ $__kk_imv_f1 == *[aA]* ]]; then
-        # (the live table copied by an eval of its own name: no nameref — bash 5.1
-        # resolves NAME[KEY] through one by re-reading the text, CI 45564636006)
+        # (the live table copied by an eval of its own name, no nameref: a
+        # precaution of fix round 1 for keys holding `]` / `@` / `$(`)
         if [[ $__kk_imv_f1 == *A* ]]; then
             eval 'for __kk_imv_k in "${!'"$__kk_imv_n"'[@]}"; do __kk_imv_na[$__kk_imv_k]=${'"$__kk_imv_n"'[$__kk_imv_k]}; done'
         else
@@ -1475,8 +1541,14 @@ kk._img__vdelta() {
                     __kk_imv_s+="unset -v '$__kk_imv_n[$__kk_imv_q]'"$'\n'
                 fi
             done
+            # (the key in a plain variable, never `T[${k[i]}]`: bash 5.1's unset
+            # finds the end of an associative subscript without counting nested
+            # brackets (arrayfunc.c unbind_array_element: skipsubscript(…, 1)),
+            # so `${k[i]}` ended at its own `]` — "bad substitution", which ends
+            # a non-interactive shell; CI 45564636006 / 45582936380, the bash
+            # 5.1 rows: I2b fix round 2)
             if (( ${#__kk_imv_l[@]} )); then
-                __kk_imv_s+="__kk_img_k=(${__kk_imv_l[*]})"$'\n'"for __kk_img_i in \"\${!__kk_img_k[@]}\"; do unset -v '$__kk_imv_n[\${__kk_img_k[__kk_img_i]}]'; done"$'\n'
+                __kk_imv_s+="__kk_img_k=(${__kk_imv_l[*]})"$'\n'"for __kk_img_i in \"\${__kk_img_k[@]}\"; do unset -v '$__kk_imv_n[\$__kk_img_i]'; done"$'\n'
             fi
             __kk_imk_dtxt+=("$__kk_imv_s")
         fi
@@ -1846,7 +1918,7 @@ kk._img__after() {
     # the temp files: what is left of this writer's
     if [[ -n $__kk_imw_t ]]; then
         for __kk_ima_x in sh0 sh1 v0 v0f v1f k0 k1 m1 m1o m1c m1f m1o.v0 m1o.v1 m1o.why m1o.sim m1o.sim.n m1o.sim.pre \
-                          m1o.sim.raw m1o.sim.V m1o.sim.A m1o.sim.F m1o.sim.X m1o.sim.S \
+                          m1o.sim.raw m1o.sim.V m1o.sim.A m1o.sim.F m1o.sim.X m1o.sim.S m1o.ht \
                           end.V end.A end.F end.X end.S f0 f1 ft0 ft1 n1 fn end end.n end.pre end.raw sim sim.pre sim.raw diff ref img tr0 tr1; do
             __kk_ima_f+=("$__kk_imw_t.$__kk_ima_x")
         done
@@ -1859,25 +1931,40 @@ kk._img__after() {
     return 0
 }
 
-# kk._img__worth — is an image worth writing: the normal load just measured
-# (the kk._uses call alone) took at least __KK_IMG_MINLOAD ms, default 50. An
-# image start has fixed costs that grow with the files it stamps, not with
-# the load it replaces — the key and its hash, a check of every stamped file,
-# the header, the base check; chained also P's rows and P's files: tstopwatch
-# on a 20-unit prior set hit in 59-66 ms where its plain load took 36 ms (I2b
-# critic, Git-bash on the laptop); a fresh start's hit costs ~30 ms there at
-# the least (tstopwatch with kklass: plain 88 ms, hit 32 ms; tstringlist
-# 136 / 40 ms; fv.dlg on tstringlist 724 / 167 ms; median of 5). 50 ms keeps
-# such loads plain and those imaged. rc 1 (__kk_imw_why, a hold: the
-# same start would refuse again; --rebuild tries again) otherwise. A value
-# that is not a count: the default. (The suites set 0: their loads take a few
-# ms — kkore/tests/unit_fixture.sh, kcl/tests/kcl_units.sh.)
+# kk._img__worth [START] — is an image worth writing: rc 0 when the normal
+# load just measured (the kk._uses call alone) took at least 1.5 times what a
+# start of the image would cost here; rc 1 (__kk_imw_why, a hold: the same
+# start would refuse again; --rebuild tries again) otherwise. The cost of a
+# start = START (ms: the fresh process's simulated start of a chained image —
+# its header, checks, source and hooks, kk._img__kidsim) + this kk.image's
+# own steps before the writer (its prior set, key, folder, the image looked
+# up: what every start pays first). Measured (I2b fix round 2, Git-bash on
+# the laptop, a bare load / START / a fresh start's hit): tobjectlist on tlist
+# 28 / 5 / 18 ms, tfind on kklass tutil tdictionary thashset 26 / 5 / 21,
+# tstopwatch on a 20-unit P 35 / 8 / 31, fv.dlg on tstringlist 665 / 174 /
+# 150; the steps before the writer 10-20 ms — so a hit costs START + those,
+# and 1.5 times that keeps a load whose image saves less than a third plain,
+# above timing noise (critic M4: an absolute 50 ms held tobjectlist, whose
+# hit is the faster). Unchained there is no START (its simulation sources
+# nothing): the steps before the writer alone. A chained writer asks twice:
+# without START before it builds (deferred: rc 0), with START once the fresh
+# process ran (kk._img__chainsim). __KK_IMG_MINLOAD=MS (a count; a seam: the
+# suites set 0) replaces the rule by an absolute floor of MS.
 kk._img__worth() {
-    local __kk_imn_m=${__KK_IMG_MINLOAD-50}
-    [[ $__kk_imn_m == [0-9]* && $__kk_imn_m != *[!0-9]* && ${#__kk_imn_m} -lt 7 ]] || __kk_imn_m=50
+    local __kk_imn_m=${__KK_IMG_MINLOAD-} __kk_imn_l __kk_imn_o __kk_imn_c
     kk._img__ms "$__kk_imw_l0" "$__kk_imw_l1"
-    (( __kk_imw_ms >= 10#$__kk_imn_m )) && return 0
-    __kk_imw_why="not worth an image: the normal load took $__kk_imw_ms ms, under $(( 10#$__kk_imn_m )) ms (an image start costs about as much)"
+    __kk_imn_l=$__kk_imw_ms
+    if [[ $__kk_imn_m == [0-9]* && $__kk_imn_m != *[!0-9]* && ${#__kk_imn_m} -lt 7 ]]; then
+        (( __kk_imn_l >= 10#$__kk_imn_m )) && return 0
+        __kk_imw_why="not worth an image: the normal load took $__kk_imn_l ms, under $(( 10#$__kk_imn_m )) ms (__KK_IMG_MINLOAD)"
+        return 1
+    fi
+    if (( ! $# )) && [[ -n $__kk_im_prior ]]; then return 0; fi
+    kk._img__ms "${__kk_im_t0:-${__kk_imw_tp[0]}}" "${__kk_imw_tp[0]}"
+    __kk_imn_o=$__kk_imw_ms
+    __kk_imn_c=$(( ${1:-0} + __kk_imn_o ))
+    (( __kk_imn_l * 2 >= __kk_imn_c * 3 )) && return 0
+    __kk_imw_why="not worth an image: the normal load took $__kk_imn_l ms, a start of the image would cost about $__kk_imn_c ms here (${1:+the simulated start ${1} ms + }the steps before the writer $__kk_imn_o ms): under 1.5 times that"
     return 1
 }
 
