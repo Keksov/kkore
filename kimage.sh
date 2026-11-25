@@ -66,11 +66,18 @@
 #      VARs compare in pairs; the hash table on its own). Chained (§7.7): in
 #      ONE fresh process, once the image is in its temp file (kk._img__chainsim:
 #      P loaded as its own load leaves it, the image applied as a start, the
-#      states compared across the processes; the M1 probe on top of P there);
+#      states compared across the processes; the M1 probe on top of P there;
+#      the variables of P's that this call's unit files name become the READ
+#      base, `r` entries with their state before the load, and the temp image
+#      is written again with them: kk._img__rbase); a bare load under
+#      __KK_IMG_MINLOAD ms (50) writes nothing first (kk._img__worth: not
+#      worth an image, a hold);
 #   5. the image text (format v1, §6.1, under LC_ALL=C) written by ONE printf
 #      into NAME.tmp.TAG.PID.RANDOM.img (umask 077, noclobber), rc checked
 #      (with NAME.fnc when the image redefines a function: the starts' text
-#      check on bash < 5.3); `mv -f` the image, then (dates mode) the reference file to
+#      check on bash < 5.3; a NAME.fnc that is a symbolic link — refused, not
+#      followed —, a folder, another user's or not writable: no image, a
+#      hold naming it); `mv -f` the image, then (dates mode) the reference file to
 #      NAME.NONCE.ref. A failed write or rename (a native process holding
 #      the image open) is silent: the old image stays;
 #   6. a refusal of step 3 / 4 leaves NAME.hold (the reason; §7.5): the next
@@ -808,6 +815,36 @@ kk._img__m1scan() {
     return 0
 }
 
+# kk._img__words SET FILE... — the caller's associative array SET = the words
+# (runs of anything but blanks and punctuation) of the FILEs once their `#`
+# comment lines and trailing comments are cut: kk._img__m1scan's text, split
+# by IFS in one go (a `${x//[!…]/ }` over a megabyte is quadratic in bash —
+# 23 s for the fv.dlg closure; this split ~70 ms, the set ~0.4 s, laptop).
+# The chained writer's fresh process asks it which of P's variables this
+# call's units name (the read base) and which candidates M1 probes.
+kk._img__words() {
+    local - LC_ALL=C __kk_imo_t="" __kk_imo_c __kk_imo_f __kk_imo_x IFS=$'\n'
+    local -a __kk_imo_l=()
+    local -n __kk_imo_s=$1
+    shift
+    set -f
+    __kk_imo_s=()
+    for __kk_imo_f; do
+        __kk_imo_c=""
+        { read -r -N 268435456 __kk_imo_c < "$__kk_imo_f"; } 2>/dev/null || :
+        __kk_imo_l=($__kk_imo_c)
+        __kk_imo_l=("${__kk_imo_l[@]/#\#*/}")                 # comment lines
+        printf -v __kk_imo_c '%s\n' "${__kk_imo_l[@]/%[[:space:]]#*/}"    # trailing comments
+        __kk_imo_t+=$__kk_imo_c
+    done
+    printf -v IFS '%s' ' 	' $'\n\r' '!"#$%&'"'"'()*+,-./:;<=>?@[\]^`{|}~'
+    __kk_imo_l=($__kk_imo_t)
+    for __kk_imo_x in "${__kk_imo_l[@]}"; do
+        [[ -n $__kk_imo_x ]] && __kk_imo_s[$__kk_imo_x]=1
+    done
+    return 0
+}
+
 # kk._img__m1check WHAT — step 3's verdict from the lines of the fresh
 # process (__kk_ima_l: `u NAME=FILE` per unit the load registered, `v NAME`
 # per name it set, `end RC`): rc 1 (__kk_imw_why) when it gave no result, its
@@ -859,7 +896,10 @@ kk._img__m1check() {
 # PFILE… REQUEST…`; its result lines (OUT, read here into the caller's
 # __kk_ima_l) end with `end RC` — fail-closed: the caller treats a missing
 # marker as a refusal. rc 1 (__kk_imw_why) only when the script cannot be
-# written.
+# written. Its stderr goes to /dev/null; __KK_IMG_KIDERR=FILE (a test and
+# diagnosis seam, I2b fix round) keeps it in FILE instead — a fatal error of
+# the simulated start (kk._img__kidsim), which then names only its rc in
+# OUT.why, shows there.
 kk._img__child() {
     local - __kk_imc_m=$1 __kk_imc_n __kk_imc_x __kk_imc_cl=$__kk_im_caller __kk_imc_ux="" __kk_imc_o="" __kk_imc_k="" __kk_n=""
     local -a __kk_imc_e=() __kk_imc_s=()
@@ -915,7 +955,7 @@ kk._img__child() {
     command env "${__kk_imc_e[@]}" -u BASH_ENV -u ENV "${__kk_imc_s[@]}" "$BASH" "$__kk_imw_t.m1" \
         "$PWD" "${__KK_UNITS[kbool]}" "${__KK_PROJECT-}" \
         "$1" "$2" "$__kk_imc_cl" "$3" "$4" "$__kk_imw_um1" "$__kk_imw_pid" "$__kk_imw_used" "$5" "$6" "$7" "${@:8}" \
-        "${__kk_im_args[@]}" </dev/null >/dev/null 2>&1
+        "${__kk_im_args[@]}" </dev/null >/dev/null 2>"${__KK_IMG_KIDERR:-/dev/null}"
     umask 077
     { mapfile -t __kk_ima_l < "$2"; } 2>/dev/null || __kk_ima_l=()
     return 0
@@ -944,7 +984,7 @@ kk._img_kid() {
           __kk_im9_used=$8 __kk_im9_img=$9 __kk_im9_dir=${10} __kk_im9_nm=${11} __kk_im9_np=${12} __kk_im9_x __kk_im9_r=0 \
           __kk_im9_k __kk_im9_b=" " __kk_im9_out="" __kk_im9_t=$EPOCHREALTIME __kk_im9_tt="" __kk_n
     local -a __kk_im9_P=() __kk_im9_c=() __kk_im9_mt=() __kk_im9_fl=() __kk_im9_v=()
-    local -A __kk_im9_pre=() __kk_im9_aft=()
+    local -A __kk_im9_pre=() __kk_im9_aft=() __kk_im9_wd=()
     shift 12
     __kk_im9_P=("${@:1:__kk_im9_np}")
     shift "$__kk_im9_np"
@@ -984,7 +1024,18 @@ kk._img_kid() {
         __KK_UNIT_USED=$__kk_im9_used
         kk._img__kidms P
         ( kk._img__kidsim )
-        __kk_im9_out+="s $?"$'\n'
+        __kk_im9_r=$?
+        __kk_im9_out+="s $__kk_im9_r"$'\n'
+        if (( __kk_im9_r )); then
+            __kk_im9_x=""
+            { IFS= read -r __kk_im9_x < "$__kk_im9_o.why"; } 2>/dev/null || :
+            if [[ -z $__kk_im9_x || $__kk_im9_x == "(started)" ]]; then
+                umask 077
+                { printf 'the simulated start died (rc %s) before it said why: a fatal error inside the image check, the source or the dump (__KK_IMG_KIDERR=FILE keeps its stderr)' "$__kk_im9_r" > "$__kk_im9_o.why"; } 2>/dev/null
+                umask "$__kk_im9_um"
+            fi
+        fi
+        __kk_im9_r=0
         kk._img__kidms sim
         # M1 on top of P: P's own variables are no candidates (every start has them)
         umask 077
@@ -997,7 +1048,21 @@ kk._img_kid() {
             [[ -n ${__kk_im9_pre[$__kk_im9_x]-} || -z ${__kk_im9_aft[$__kk_im9_x]-} ]] && __kk_im9_v+=("$__kk_im9_x")
         done
         kk._img__split "$__kk_im9_ff" __kk_im9_fl
-        kk._img__m1scan __kk_im9_v __kk_im9_mt "${__kk_im9_fl[@]}" 2>/dev/null
+        # the words of this call's unit files (comments cut), once: the M1
+        # candidates they name, and the read base — the variables P's own
+        # load made here that they name (kk._img__chainsim records their
+        # state before this load; a start compares it: I2b fix round, F2)
+        kk._img__words __kk_im9_wd "${__kk_im9_fl[@]}" 2>/dev/null
+        # (an M1 candidate this process has from its environment is a read
+        # too: P's load may have taken it — an exported preset of P's default)
+        for __kk_im9_x in "${__kk_im9_v[@]}"; do
+            [[ -n ${__kk_im9_wd[$__kk_im9_x]-} ]] || continue
+            __kk_im9_mt+=("$__kk_im9_x")
+            [[ -z ${__kk_im9_pre[$__kk_im9_x]-} ]] || __kk_im9_out+="r $__kk_im9_x"$'\n'
+        done
+        for __kk_im9_x in "${!__kk_im9_aft[@]}"; do
+            [[ -z ${__kk_im9_pre[$__kk_im9_x]-} && -n ${__kk_im9_wd[$__kk_im9_x]-} ]] && __kk_im9_out+="r $__kk_im9_x"$'\n'
+        done
         kk._img__kidms scan
     else
         __kk_im9_mt=("${__kk_im9_c[@]}")
@@ -1057,6 +1122,9 @@ kk._img__kidsim() {
     # last call left)
     local -a __KK_IMG_XV=(__KK_UNIT_BOT __KK_UNIT_DONE __KK_UNIT_PID __KK_UNIT_IDX __KK_UNIT_CAND __KK_UNIT_IDX_OK __KK_UNIT_RES __KK_UNIT_HIT
         __KK_FILE_PWD __KK_UNIT_SRC BASH_CMDS PPID SHLVL OLDPWD SHELLOPTS BASHOPTS COMP_WORDBREAKS OSTYPE '-' '__kk_*')
+    # (a default reason first: a fatal error below ends this subshell before
+    # it writes one — kk._img_kid then names the rc)
+    umask 077; { printf "(started)" > "$__kk_im9_o.why"; } 2>/dev/null; umask "$__kk_im9_um"
     if ! kk._img__kidfit; then
         umask 077; { printf '%s' "$__kk_im_why" > "$__kk_im9_o.why"; } 2>/dev/null
         return 1
@@ -1089,6 +1157,103 @@ kk._img__kidfit() {
     kk._image__fits
 }
 
+# kk._img__rbase NAME... — kk._img__chainsim's read base (I2b fix round, F2):
+# for each variable of P's that this call's unit files name (the fresh
+# process told which: P's own load made it there, or it came from the
+# environment), its state BEFORE this load — the record of before the load
+# when the load changed it (__kk_imk_was), else its state now — as an `r`
+# entry of the base list: KEY s (`-` unset, `=` the value), a (`=COUNT:LAST`:
+# the element count and the last index of an indexed array — an append writes
+# LAST+1), A (`=COUNT` of an associative array). A start compares them before
+# sourcing (kimghit.sh kk._image__fits): an environment preset of P's default,
+# a P list the caller shortened, a registry key the caller added make it a
+# plain kk.uses. The header (its base list line, line 1's length, the size
+# field) is made again and the temp image written again. rc 1
+# (__kk_imw_why, a hold) when an earlier value holds a CR byte or the
+# rewrite fails (no hold).
+# Limit (documented): reads through P's functions, or of names the unit files
+# build (eval, indirection), are not seen.
+kk._img__rbase() {
+    local LC_ALL=C __kk_imr_n __kk_imr_w __kk_imr_f __kk_imr_m __kk_imr_v __kk_imr_h __kk_imr_l0 __kk_imr_t=0 __kk_imr_x \
+          __kk_imj_s __kk_imr_y=0
+    local -a __kk_imr_a=() __kk_imr_k=() __kk_imr_e=()
+    local -A __kk_imr_o=()
+    for __kk_imr_n; do
+        [[ -n $__kk_imr_n && $__kk_imr_n != *[!A-Za-z0-9_]* && $__kk_imr_n != [0-9]* && ! -R $__kk_imr_n ]] || continue
+        # (not a read of P's state: bash's own and the return channel RESULT
+        # (__KK_IMG_SKIP, __KK_IMG_BASHV — every statement may change them),
+        # kkore's (its slots are element deltas), a hook VAR (set on every start))
+        [[ $__kk_imr_n != __[Kk][Kk]_* && $__KK_IMG_SKIP != *" $__kk_imr_n "* && $__KK_IMG_BASHV != *" $__kk_imr_n "* \
+           && -z ${__kk_imk_hv[$__kk_imr_n]-} ]] || continue
+        __kk_imr_w=${__kk_imk_was[$__kk_imr_n]-}
+        if [[ -n $__kk_imr_w ]]; then
+            # (before this load: its declare -p record, evaluated as kk._img__vdelta does)
+            __kk_imr_f=${__kk_imr_w#declare -}; __kk_imr_f=${__kk_imr_f%% *}
+            if [[ $__kk_imr_f == *A* ]]; then
+                __kk_imr_o=()
+                if [[ $__kk_imr_w == *=* ]]; then eval "__kk_imr_o=${__kk_imr_w#*=}"; fi
+                __kk_imr_e+=("r$__KK_SEP$__kk_imr_n${__KK_SEP}A$__KK_SEP=$__KK_SEP${#__kk_imr_o[@]}")
+            elif [[ $__kk_imr_f == *a* ]]; then
+                __kk_imr_a=()
+                if [[ $__kk_imr_w == *=* ]]; then eval "__kk_imr_a=${__kk_imr_w#*=}"; fi
+                __kk_imr_k=("${!__kk_imr_a[@]}")
+                __kk_imr_v=0:
+                (( ! ${#__kk_imr_k[@]} )) || __kk_imr_v=${#__kk_imr_k[@]}:${__kk_imr_k[-1]}
+                __kk_imr_e+=("r$__KK_SEP$__kk_imr_n${__KK_SEP}a$__KK_SEP=$__KK_SEP$__kk_imr_v")
+            elif [[ $__kk_imr_w == *=* ]]; then
+                eval "__kk_imr_v=${__kk_imr_w#*=}"
+                __kk_imr_e+=("r$__KK_SEP$__kk_imr_n${__KK_SEP}s$__KK_SEP=$__KK_SEP$__kk_imr_v")
+            else
+                __kk_imr_e+=("r$__KK_SEP$__kk_imr_n${__KK_SEP}s$__KK_SEP-$__KK_SEP")
+            fi
+        else
+            __kk_imr_m="$__kk_imr_n[@]"
+            __kk_imr_m=${!__kk_imr_m@a}
+            if [[ $__kk_imr_m == *A* ]]; then
+                eval "__kk_imr_v=\${#$__kk_imr_n[@]}"
+                __kk_imr_e+=("r$__KK_SEP$__kk_imr_n${__KK_SEP}A$__KK_SEP=$__KK_SEP$__kk_imr_v")
+            elif [[ $__kk_imr_m == *a* ]]; then
+                eval "__kk_imr_k=(\"\${!$__kk_imr_n[@]}\")"
+                __kk_imr_v=0:
+                (( ! ${#__kk_imr_k[@]} )) || __kk_imr_v=${#__kk_imr_k[@]}:${__kk_imr_k[-1]}
+                __kk_imr_e+=("r$__KK_SEP$__kk_imr_n${__KK_SEP}a$__KK_SEP=$__KK_SEP$__kk_imr_v")
+            elif [[ -n ${!__kk_imr_n+x} ]]; then
+                __kk_imr_e+=("r$__KK_SEP$__kk_imr_n${__KK_SEP}s$__KK_SEP=$__KK_SEP${!__kk_imr_n}")
+            else
+                __kk_imr_e+=("r$__KK_SEP$__kk_imr_n${__KK_SEP}s$__KK_SEP-$__KK_SEP")
+            fi
+        fi
+        # (as kk._img__vdelta: the base list is one compound array, which the
+        # MSYS-family parsers read without its CR bytes)
+        if [[ ${__kk_imr_e[-1]} == *$'\r'* ]]; then
+            __kk_imw_why="the earlier value of $__kk_imr_n, which this call's load reads, holds a CR byte (the base list is one compound array)"; return 1
+        fi
+    done
+    (( ${#__kk_imr_e[@]} )) || return 0
+    __kk_imk_base+=("${__kk_imr_e[@]}")
+    # the header again: its base list line (the last), line 1's byte length,
+    # the size field of its plain line
+    __kk_imr_h=${__kk_imw_P[0]#*$'\n'}
+    __kk_imr_h=${__kk_imr_h%%$'\n'__kk_img_base=\(*}
+    kk._img__arr __kk_img_base __kk_imk_base
+    __kk_imr_h+=$'\n'$__kk_imj_s$'\n'
+    for (( __kk_imr_x = 1; __kk_imr_x < ${#__kk_imw_P[@]}; __kk_imr_x++ )); do
+        __kk_imr_t=$(( __kk_imr_t + ${#__kk_imw_P[__kk_imr_x]} ))
+    done
+    __kk_imr_l0="# kbool image v1 ${#__kk_imr_h}"$'\n'
+    __kk_imr_t=$(( __kk_imr_t + ${#__kk_imr_l0} + ${#__kk_imr_h} ))
+    # (SIZE: the third field of the plain line, 12 digits — the length stays)
+    __kk_imr_l0+=${__kk_imr_h%%"$__KK_SEP"*}$__KK_SEP
+    __kk_imr_h=${__kk_imr_h#*"$__KK_SEP"}
+    __kk_imr_l0+=${__kk_imr_h%%"$__KK_SEP"*}$__KK_SEP
+    __kk_imr_h=${__kk_imr_h#*"$__KK_SEP"}
+    printf -v __kk_imr_x '%012d' "$__kk_imr_t"
+    __kk_imw_P[0]=$__kk_imr_l0$__kk_imr_x$__KK_SEP${__kk_imr_h#*"$__KK_SEP"}
+    { printf '%s' "${__kk_imw_P[@]}" >| "$__kk_imw_it"; } 2>/dev/null || __kk_imr_y=1
+    if (( __kk_imr_y )); then __kk_imw_why="cannot write $__kk_imw_it"; __kk_imw_nohold=1; return 1; fi
+    return 0
+}
+
 # kk._img__chainsim — the simulated start of a chained image (§5.2, §7.7),
 # the candidate written into __kk_imw_it: ONE fresh process (kk._img__child
 # chain) loads P as its own load leaves it, applies the image exactly as a
@@ -1100,7 +1265,7 @@ kk._img__kidfit() {
 # the M1 steps on top of P. rc 1 (__kk_imw_why, a hold) on any difference.
 kk._img__chainsim() {
     local __kk_imz_x __kk_imz_s="" __kk_imz_w="" __kk_imz_p="" __kk_imz_m="" __kk_imz_d=""
-    local -a __kk_ima_l=() __kk_imz_f=() __kk_imz_c=() __kk_imz_q=()
+    local -a __kk_ima_l=() __kk_imz_f=() __kk_imz_c=() __kk_imz_q=() __kk_imz_rb=()
     local -A __kk_imz_b=()
     # (the M1 candidates but the names the base list covers: a start checks
     # their earlier value — an exported preset of a P default, say, makes a
@@ -1137,6 +1302,7 @@ kk._img__chainsim() {
             "s "*) __kk_imz_s=${__kk_imz_x#s } ;;
             "m "*) __kk_imz_m=${__kk_imz_x#m } ;;
             "t "*) __kk_imw_pr+=" (${__kk_imz_x#t })" ;;
+            "r "*) __kk_imz_rb+=("${__kk_imz_x#r }") ;;
             "end "*) __kk_imz_w=${__kk_imz_x#end } ;;
         esac
     done
@@ -1163,29 +1329,38 @@ kk._img__chainsim() {
     if [[ $__kk_imz_m != 0 ]]; then
         kk._img__m1check "the fresh-process probe of the variables of before the load" || return 1
     fi
+    # the read base: the fresh process named them (`r NAME`)
+    if (( ${#__kk_imz_rb[@]} )); then
+        kk._img__rbase "${__kk_imz_rb[@]}" || return 1
+    fi
     return 0
 }
 
 # kk._img__hcopy ASSOC — the caller's ASSOC = the hash table (BASH_CMDS).
+# (ASSOC named in an eval, the key in a variable: no nameref — bash 5.1
+# re-reads `ref[KEY]` as text, so a command name holding `]` would be a fatal
+# "bad array subscript": I2b fix round F1)
 kk._img__hcopy() {
-    local -n __kk_imh_r=$1
     local __kk_imh_k
-    __kk_imh_r=()
-    for __kk_imh_k in "${!BASH_CMDS[@]}"; do __kk_imh_r[$__kk_imh_k]=${BASH_CMDS[$__kk_imh_k]}; done
+    eval "$1=()"
+    for __kk_imh_k in "${!BASH_CMDS[@]}"; do eval "$1[\$__kk_imh_k]=\${BASH_CMDS[\$__kk_imh_k]}"; done
     return 0
 }
 
 # kk._img__hdiff A B -> __kk_imw_hd: the first name whose hash-table entry
-# differs between the associative arrays A and B ('' when equal).
+# differs between the associative arrays A and B ('' when equal; no nameref,
+# as kk._img__hcopy).
 kk._img__hdiff() {
-    local -n __kk_imh_a=$1 __kk_imh_b=$2
     local __kk_imh_k
+    local -a __kk_imh_ks=()
     __kk_imw_hd=""
-    for __kk_imh_k in "${!__kk_imh_b[@]}"; do
-        [[ ${__kk_imh_a[$__kk_imh_k]-$'\1'} == "${__kk_imh_b[$__kk_imh_k]}" ]] || { __kk_imw_hd=$__kk_imh_k; return 0; }
+    eval "__kk_imh_ks=(\"\${!$2[@]}\")"
+    for __kk_imh_k in "${__kk_imh_ks[@]}"; do
+        eval "[[ \${$1[\$__kk_imh_k]-\$'\\1'} == \"\${$2[\$__kk_imh_k]}\" ]]" || { __kk_imw_hd=$__kk_imh_k; return 0; }
     done
-    for __kk_imh_k in "${!__kk_imh_a[@]}"; do
-        [[ -n ${__kk_imh_b[$__kk_imh_k]+x} ]] || { __kk_imw_hd=$__kk_imh_k; return 0; }
+    eval "__kk_imh_ks=(\"\${!$1[@]}\")"
+    for __kk_imh_k in "${__kk_imh_ks[@]}"; do
+        eval "[[ -n \${$2[\$__kk_imh_k]+x} ]]" || { __kk_imw_hd=$__kk_imh_k; return 0; }
     done
     return 0
 }
@@ -1206,8 +1381,8 @@ kk._img__hdiff() {
 kk._img__vdelta() {
     local LC_ALL=C IFS=" " __kk_imv_n=$1 __kk_imv_w=${__kk_imk_was[$1]-} __kk_imv_p=${__kk_imk_post[$1]-} __kk_imv_f0 __kk_imv_f1 \
           __kk_imv_k __kk_imv_s __kk_imv_q __kk_imv_v __kk_imv_cr
-    local -a __kk_imv_oi=() __kk_imv_ks=() __kk_imv_rk=() __kk_imv_l=()
-    local -A __kk_imv_oa=()
+    local -a __kk_imv_oi=() __kk_imv_ni=() __kk_imv_ks=() __kk_imv_rk=() __kk_imv_l=()
+    local -A __kk_imv_oa=() __kk_imv_na=()
     printf -v __kk_imv_cr '\r'
     if [[ -z $__kk_imv_p ]]; then __kk_imw_why="the load removed the existing variable $__kk_imv_n"; return 1; fi
     __kk_imv_f0=${__kk_imv_w#declare -}; __kk_imv_f0=${__kk_imv_f0%% *}
@@ -1222,7 +1397,13 @@ kk._img__vdelta() {
         __kk_imw_why="the load changed the existing variable $__kk_imv_n (-$__kk_imv_f1: a nameref or readonly)"; return 1
     fi
     if [[ $__kk_imv_f1 == *[aA]* ]]; then
-        local -n __kk_imv_r=$__kk_imv_n
+        # (the live table copied by an eval of its own name: no nameref — bash 5.1
+        # resolves NAME[KEY] through one by re-reading the text, CI 45564636006)
+        if [[ $__kk_imv_f1 == *A* ]]; then
+            eval 'for __kk_imv_k in "${!'"$__kk_imv_n"'[@]}"; do __kk_imv_na[$__kk_imv_k]=${'"$__kk_imv_n"'[$__kk_imv_k]}; done'
+        else
+            eval 'for __kk_imv_k in "${!'"$__kk_imv_n"'[@]}"; do __kk_imv_ni[__kk_imv_k]=${'"$__kk_imv_n"'[__kk_imv_k]}; done'
+        fi
         if [[ $__kk_imv_w == *=* ]]; then
             if [[ $__kk_imv_w == *'\r'* ]]; then
                 __kk_imw_why="the earlier record of $__kk_imv_n holds \\r (a compound array assignment loses CR on the MSYS-family parsers)"; return 1
@@ -1230,10 +1411,10 @@ kk._img__vdelta() {
             if [[ $__kk_imv_f1 == *A* ]]; then eval "__kk_imv_oa=${__kk_imv_w#*=}"; else eval "__kk_imv_oi=${__kk_imv_w#*=}"; fi
         fi
         if [[ $__kk_imv_f1 == *A* ]]; then
-            for __kk_imv_k in "${!__kk_imv_r[@]}"; do
+            for __kk_imv_k in "${!__kk_imv_na[@]}"; do
                 if [[ -z ${__kk_imv_oa[$__kk_imv_k]+x} ]]; then
                     __kk_imk_base+=("e$__KK_SEP$__kk_imv_n$__KK_SEP$__kk_imv_k$__KK_SEP-$__KK_SEP")
-                elif [[ ${__kk_imv_oa[$__kk_imv_k]} != "${__kk_imv_r[$__kk_imv_k]}" ]]; then
+                elif [[ ${__kk_imv_oa[$__kk_imv_k]} != "${__kk_imv_na[$__kk_imv_k]}" ]]; then
                     __kk_imk_base+=("e$__KK_SEP$__kk_imv_n$__KK_SEP$__kk_imv_k$__KK_SEP=$__KK_SEP${__kk_imv_oa[$__kk_imv_k]}")
                 else
                     continue
@@ -1241,15 +1422,15 @@ kk._img__vdelta() {
                 __kk_imv_ks+=("$__kk_imv_k")
             done
             for __kk_imv_k in "${!__kk_imv_oa[@]}"; do
-                [[ -z ${__kk_imv_r[$__kk_imv_k]+x} ]] || continue
+                [[ -z ${__kk_imv_na[$__kk_imv_k]+x} ]] || continue
                 __kk_imk_base+=("e$__KK_SEP$__kk_imv_n$__KK_SEP$__kk_imv_k$__KK_SEP=$__KK_SEP${__kk_imv_oa[$__kk_imv_k]}")
                 __kk_imv_rk+=("$__kk_imv_k")
             done
         else
-            for __kk_imv_k in "${!__kk_imv_r[@]}"; do
+            for __kk_imv_k in "${!__kk_imv_ni[@]}"; do
                 if [[ -z ${__kk_imv_oi[__kk_imv_k]+x} ]]; then
                     __kk_imk_base+=("e$__KK_SEP$__kk_imv_n$__KK_SEP$__kk_imv_k$__KK_SEP-$__KK_SEP")
-                elif [[ ${__kk_imv_oi[__kk_imv_k]} != "${__kk_imv_r[__kk_imv_k]}" ]]; then
+                elif [[ ${__kk_imv_oi[__kk_imv_k]} != "${__kk_imv_ni[__kk_imv_k]}" ]]; then
                     __kk_imk_base+=("e$__KK_SEP$__kk_imv_n$__KK_SEP$__kk_imv_k$__KK_SEP=$__KK_SEP${__kk_imv_oi[__kk_imv_k]}")
                 else
                     continue
@@ -1257,7 +1438,7 @@ kk._img__vdelta() {
                 __kk_imv_ks+=("$__kk_imv_k")
             done
             for __kk_imv_k in "${!__kk_imv_oi[@]}"; do
-                [[ -z ${__kk_imv_r[__kk_imv_k]+x} ]] || continue
+                [[ -z ${__kk_imv_ni[__kk_imv_k]+x} ]] || continue
                 __kk_imk_base+=("e$__KK_SEP$__kk_imv_n$__KK_SEP$__kk_imv_k$__KK_SEP=$__KK_SEP${__kk_imv_oi[__kk_imv_k]}")
                 __kk_imv_rk+=("$__kk_imv_k")
             done
@@ -1318,15 +1499,15 @@ kk._img__vdelta() {
 }
 
 # kk._img__eset NAME ATTRS — kk._img__vdelta's new values of the elements
-# __kk_imv_ks of NAME into __kk_imk_dtxt, in kk._img__vals' forms.
+# __kk_imv_ks of NAME (their values from vdelta's copies __kk_imv_na / __kk_imv_ni) into
+# __kk_imk_dtxt, in kk._img__vals' forms.
 kk._img__eset() {
     # (IFS: kk._img__loop takes the %q lists newline-joined; the caller's IFS may be anything)
     local IFS=$'\n' __kk_ime_k __kk_ime_qk __kk_ime_qv __kk_ime_c=""
     local -a __kk_ime_uk=() __kk_ime_uv=() __kk_ime_z=()
-    local -n __kk_ime_r=$1
     for __kk_ime_k in "${__kk_imv_ks[@]}"; do
         printf -v __kk_ime_qk '%q' "$__kk_ime_k"
-        printf -v __kk_ime_qv '%q' "${__kk_ime_r[$__kk_ime_k]}"
+        if [[ $2 == *A* ]]; then printf -v __kk_ime_qv '%q' "${__kk_imv_na[$__kk_ime_k]}"; else printf -v __kk_ime_qv '%q' "${__kk_imv_ni[__kk_ime_k]}"; fi
         if [[ $2 == *A* && $__kk_ime_qk == *[!$__KK_IMG_PLAIN]* ]] && kk._img__loopkey "$__kk_ime_k"; then
             __kk_ime_uk+=("$__kk_ime_qk")
             __kk_ime_uv+=("$__kk_ime_qv")
@@ -1473,7 +1654,7 @@ kk._img_write() {
           __kk_imw_v0f="" __kk_imw_k0="" __kk_imw_sh0="" __kk_imw_nord=0 __kk_imw_nset=0 __kk_imw_used="" \
           __kk_imw_pr="" __kk_imw_opt=$- __kk_imw_tag="" __kk_imw_fl="" __kk_imw_t0=0 __kk_imw_fd0="" \
           __kk_imw_fd1="" __kk_imw_trap="" __kk_imw_trp="" __kk_imw_tro="" __kk_imw_trs=0 __kk_imw_hd="" \
-          __kk_imw_wrote=0 __kk_imw_rt="" __kk_imw_now=0
+          __kk_imw_wrote=0 __kk_imw_rt="" __kk_imw_now=0 __kk_imw_l0=0 __kk_imw_l1=0
     local -a __kk_imw_vn=() __kk_imw_kn=() __kk_imw_fo=() __kk_imw_P=() __kk_imw_tp=()
     local -A __kk_imw_pre=() __kk_imw_f0=() __kk_imw_kb=() __kk_imw_hc0=() __kk_imw_hc1=() __kk_imw_res0=()
     __kk_imw_tp[0]=$EPOCHREALTIME
@@ -1485,8 +1666,10 @@ kk._img_write() {
         kk._img__trapset; kk._img_fds __kk_imw_fd0; kk._img__hcopy __kk_imw_hc0
         umask "$__kk_imw_um"
     fi
+    __kk_imw_l0=$EPOCHREALTIME
     kk._uses "$__kk_im_caller" "${__kk_im_args[@]}"
     __kk_imw_rc=$?
+    __kk_imw_l1=$EPOCHREALTIME
     if (( __kk_imw_ok )); then
         kk._img__hcopy __kk_imw_hc1; kk._img_fds __kk_imw_fd1; kk._img__trapback
         kk._img__sh1                             # (the shell state the load left, its umask too)
@@ -1647,7 +1830,7 @@ kk._img__after() {
         :
     elif (( __kk_imw_rc != 0 )); then
         __kk_imw_why="the load failed (rc $__kk_imw_rc)"
-    else
+    elif kk._img__worth; then
         kk._img__build || :
     fi
     # a hold: the same start would refuse again (§7.5); --rebuild clears one
@@ -1676,6 +1859,28 @@ kk._img__after() {
     return 0
 }
 
+# kk._img__worth — is an image worth writing: the normal load just measured
+# (the kk._uses call alone) took at least __KK_IMG_MINLOAD ms, default 50. An
+# image start has fixed costs that grow with the files it stamps, not with
+# the load it replaces — the key and its hash, a check of every stamped file,
+# the header, the base check; chained also P's rows and P's files: tstopwatch
+# on a 20-unit prior set hit in 59-66 ms where its plain load took 36 ms (I2b
+# critic, Git-bash on the laptop); a fresh start's hit costs ~30 ms there at
+# the least (tstopwatch with kklass: plain 88 ms, hit 32 ms; tstringlist
+# 136 / 40 ms; fv.dlg on tstringlist 724 / 167 ms; median of 5). 50 ms keeps
+# such loads plain and those imaged. rc 1 (__kk_imw_why, a hold: the
+# same start would refuse again; --rebuild tries again) otherwise. A value
+# that is not a count: the default. (The suites set 0: their loads take a few
+# ms — kkore/tests/unit_fixture.sh, kcl/tests/kcl_units.sh.)
+kk._img__worth() {
+    local __kk_imn_m=${__KK_IMG_MINLOAD-50}
+    [[ $__kk_imn_m == [0-9]* && $__kk_imn_m != *[!0-9]* && ${#__kk_imn_m} -lt 7 ]] || __kk_imn_m=50
+    kk._img__ms "$__kk_imw_l0" "$__kk_imw_l1"
+    (( __kk_imw_ms >= 10#$__kk_imn_m )) && return 0
+    __kk_imw_why="not worth an image: the normal load took $__kk_imw_ms ms, under $(( 10#$__kk_imn_m )) ms (an image start costs about as much)"
+    return 1
+}
+
 # kk._img__ms A B -> __kk_imw_ms: B - A in ms (two EPOCHREALTIME values).
 kk._img__ms() {
     local __kk_imm_a=${1/[.,]/} __kk_imm_b=${2/[.,]/}
@@ -1688,7 +1893,7 @@ kk._img__ms() {
 # write or rename).
 kk._img__build() {
     # (no IFS / LC_ALL local here: the simulation's hooks run in the caller's)
-    local __kk_imk_x __kk_imk_y __kk_imk_z="" __kk_imk_t __kk_imk_k __kk_imk_v __kk_imk_d __kk_imx_d __kk_imw_ms \
+    local __kk_imk_x __kk_imk_x2 __kk_imk_y __kk_imk_z="" __kk_imk_t __kk_imk_k __kk_imk_v __kk_imk_d __kk_imx_d __kk_imw_ms \
           __kk_imk_sh1="" __kk_imk_kk="" __kk_imk_stamp="" __kk_imk_stime=0 __kk_imk_home="" __kk_imk_ch=0 __kk_imk_pr="" __kk_n
     local -a __kk_imk_a=() __kk_imk_ks=() __kk_imk_units=() __kk_imk_cls=() __kk_imk_nv=() __kk_imk_ro=() \
           __kk_imk_nf=() __kk_imk_base=() __kk_imk_reg=() __kk_imk_hooks=() __kk_imk_edges=() __kk_imk_files=() \
@@ -1956,18 +2161,35 @@ kk._img__build() {
     __kk_imk_y=0
     { printf '%s' "${__kk_imw_P[@]}" > "$__kk_imw_it"; } 2>/dev/null || __kk_imk_y=1
     # (a redefined earlier function: the start's text check file, kimghit.sh
-    # kk._image__fntext — made here, under umask 077, before the simulation)
-    if (( ! __kk_imk_y && ${#__kk_imk_rf[@]} )) && [[ ! -L $__kk_im_dir/$__kk_im_name.fnc ]]; then
-        { : >| "$__kk_im_dir/$__kk_im_name.fnc"; } 2>/dev/null || __kk_imk_y=1
+    # kk._image__fntext — made here, under umask 077, before the simulation;
+    # one that is a symbolic link (refused, never followed), a folder,
+    # another user's or not writable: no image, a hold that names it — F5)
+    __kk_imk_z=""
+    if (( ! __kk_imk_y && ${#__kk_imk_rf[@]} )); then
+        __kk_imk_x2=$__kk_im_dir/$__kk_im_name.fnc
+        if [[ -L $__kk_imk_x2 ]]; then
+            __kk_imk_z="$__kk_imk_x2 is a symbolic link (refused, not followed): the function text check of this image cannot run"
+        elif [[ -e $__kk_imk_x2 ]] && [[ ! -f $__kk_imk_x2 || ! -O $__kk_imk_x2 ]]; then
+            __kk_imk_z="$__kk_imk_x2 is not a regular file of this user (a folder, another user's): the function text check of this image cannot run"
+        elif ! { : >| "$__kk_imk_x2"; } 2>/dev/null; then
+            __kk_imk_z="cannot write $__kk_imk_x2 (the function text check of this image)"
+        fi
     fi
     set +C
     umask "$__kk_imw_um"
     if (( __kk_imk_y )); then __kk_imw_why="cannot write $__kk_imw_it"; __kk_imw_nohold=1; return 1; fi
+    if [[ -n $__kk_imk_z ]]; then __kk_imw_why=$__kk_imk_z; return 1; fi
     kk._img__ms "$__kk_imk_x" "$EPOCHREALTIME"
     __kk_imw_pr+=", write $__kk_imw_ms"
     if (( __kk_imk_ch )); then
         __kk_imk_x=$EPOCHREALTIME
-        kk._img__chainsim || return 1
+        # (under umask 077: its .m1* files and the image rewritten with
+        # its read base are private like the temp image itself)
+        umask 077
+        __kk_imk_y=0
+        kk._img__chainsim || __kk_imk_y=1
+        umask "$__kk_imw_um"
+        (( ! __kk_imk_y )) || return 1
         kk._img__ms "$__kk_imk_x" "$EPOCHREALTIME"
         __kk_imw_pr+=", fresh-process simulation $__kk_imw_ms"
     fi

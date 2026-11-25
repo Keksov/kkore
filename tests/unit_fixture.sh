@@ -148,10 +148,12 @@ uf_run() {
     # Load images (kk.image): no image variable of the caller's, and no real
     # per-user cache folder (LOCALAPPDATA, XDG_CACHE_HOME): the fallback is the
     # fixture HOME's .cache; UF_ENV (an array, NAME=VALUE words) adds values.
+    # The fixture's loads take a few ms: __KK_IMG_MINLOAD=0 (kkore/kimage.sh
+    # kk._img__worth) lets the writer write them; a case sets its own in UF_ENV.
     UF_OUT="$(cd "$UF_FX/cwd" 2>/dev/null || cd "$UF_FX"; env -u KBOOL_HOME -u KBOOL_CONFIG -u VERBOSE_KKLASS -u KK_UNIT_DIR -u __KK_LOADED \
         -u USERPROFILE -u ProgramData -u PROGRAMDATA \
         -u LOCALAPPDATA -u XDG_CACHE_HOME -u KBOOL_IMAGE -u KBOOL_IMAGE_DIR -u KBOOL_IMAGE_CHECK -u KBOOL_IMAGE_CHAIN \
-        HOME="$UF_FX/home" __KK_CFG_ETC="$UF_FX/etc/kbool" FX="$UF_FX" "${UF_ENV[@]}" "$BASH" -c "$1" 2>&1)"
+        HOME="$UF_FX/home" __KK_CFG_ETC="$UF_FX/etc/kbool" FX="$UF_FX" __KK_IMG_MINLOAD=0 "${UF_ENV[@]}" "$BASH" -c "$1" 2>&1)"
     UF_RC=$?
 }
 

@@ -220,7 +220,8 @@ kk._image_prep() {
 # registered: the writer's fresh process loads P by them), __kk_im_prior (the
 # key rows NAME=FILE<US>…, FILE lexically normalised) and __kk_im_ph (the
 # same rows for the file-name hash, shorter: NAME alone when FILE is the
-# canonical KBOOL_HOME/kcl/NAME/NAME.sh or KBOOL_HOME/NAME/NAME.sh — the key
+# canonical KBOOL_HOME/kcl/NAME/NAME.sh, NAME/ for KBOOL_HOME/NAME/NAME.sh,
+# else NAME=LENGTH:FOLDER (the path's length, its folder's name) — the key
 # string decides validity, the hash only names the file, and FNV costs ~10 µs
 # per character on the laptop). rc 1 (__kk_im_why: a plain kk.uses) when a
 # non-system unit is not complete (loading, or tainted) or not in the order
@@ -249,10 +250,18 @@ kk._image_prior() {
         kk._unit_lexnorm "${__KK_UNITS[$__kk_ip_n]}"
         __kk_im_prior+=$__kk_ip_n=$__kk_n$__KK_SEP
         __kk_im_pn+=+$__kk_ip_n
-        if [[ $__kk_n == "$__kk_ip_h/kcl/$__kk_ip_n/$__kk_ip_n.sh" || $__kk_n == "$__kk_ip_h/$__kk_ip_n/$__kk_ip_n.sh" ]]; then
+        # (the file-name hash's row: the name alone for KBOOL_HOME/kcl/N/N.sh,
+        # `N/` for KBOOL_HOME/N/N.sh — two places, two rows (F7) —, else the
+        # name, the path's length and its folder's name: a cheap digest, as the
+        # hash runs per character (~10 µs each) and only names the file; the
+        # key's full rows decide, a collision costs a rewrite — F6)
+        if [[ $__kk_n == "$__kk_ip_h/kcl/$__kk_ip_n/$__kk_ip_n.sh" ]]; then
             __kk_im_ph+=$__kk_ip_n$__KK_SEP
+        elif [[ $__kk_n == "$__kk_ip_h/$__kk_ip_n/$__kk_ip_n.sh" ]]; then
+            __kk_im_ph+=$__kk_ip_n/$__KK_SEP
         else
-            __kk_im_ph+=$__kk_ip_n=$__kk_n$__KK_SEP
+            __kk_ip_e=${__kk_n%/*}
+            __kk_im_ph+=$__kk_ip_n=${#__kk_n}:${__kk_ip_e##*/}$__KK_SEP
         fi
     done
     __kk_im_pn=${__kk_im_pn#+}
@@ -853,13 +862,15 @@ kk._image__hdr() {
 }
 
 # kk._image__fits — does the image fit this shell (its header evaluated):
-# rc 0; 2 (__kk_im_why) when a name it creates exists already (the clash
-# check) or a slot of its base list differs (the base check, §7.7). Its
-# options as kk._image_check sets them (nounset, nocasematch off); the
-# writer's fresh-process simulation runs it too. Fork-free.
+# rc 0; 1 (a miss) when its base list is damaged or its NAME.fnc is gone; 2
+# (__kk_im_why: a plain kk.uses, no write) when a name it creates exists
+# already (the clash check) or a slot of its base list differs (the base
+# check, §7.7). Its options as kk._image_check sets them (nounset,
+# nocasematch off); the writer's fresh-process simulation runs it too.
+# Fork-free.
 kk._image__fits() {
-    local __kk_hc_x __kk_hc_n __kk_hc_k __kk_hc_t="" __kk_hc_m="" __kk_hc_f __kk_hc_q="" __kk_hc_d="" __kk_hc_e=0
-    local -n __kk_hc_r=__kk_hc_d
+    local __kk_hc_x __kk_hc_n __kk_hc_k __kk_hc_t="" __kk_hc_m="" __kk_hc_f __kk_hc_q="" __kk_hc_e=0 __kk_hc_s
+    local -a __kk_hc_l=()
     # a name the image creates that exists here already, in the caller's view
     # (critic H1): readonly (§8.3), a caller's local of any kind, a global
     # array of the other kind, a nameref, a preset — the image would write
@@ -879,16 +890,27 @@ kk._image__fits() {
         fi
     done
     # the base (§7.7): every pre-existing slot the image changes holds the
-    # value it had when the image was made (the delta was made against it) —
-    # KIND<US>NAME<US>KEY<US>FLAG<US>VALUE, FLAG `-` = absent, `=` = VALUE.
-    # KIND e: the element NAME[KEY] of an array — its kind read from the
-    # attributes BEFORE a key is used (an associative key on a variable that
-    # is not associative is arithmetic: R14), through a nameref (an indirect
-    # `${!X}` would expand a `$(…)` in the key, choke on `]`, read `@` as every
-    # element); an indexed array takes digits only. s: the scalar NAME. f: the
-    # function NAME, VALUE its earlier `declare -f` text (kk._image__fntext).
+    # value it had when the image was made (the delta was made against it),
+    # and every pre-existing variable of P's the load READ (a word of this
+    # call's unit files) is as it was — KIND<US>NAME<US>KEY<US>FLAG<US>VALUE,
+    # FLAG `-` = absent, `=` = VALUE:
+    #   e  the element NAME[KEY] of an array: its kind read from the attributes
+    #      BEFORE a key is used (an associative key on a variable that is not
+    #      associative is arithmetic: R14); an indexed array takes digits only;
+    #      the element read through an eval of the table's own name with the
+    #      key in a variable — no nameref (bash 5.1 resolves NAME[KEY] through
+    #      a nameref by re-reading the text: a key holding `]` is a fatal "bad
+    #      array subscript", `@` every element, `$(` runs; CI 45564636006),
+    #      no `${!X}` indirection (the same text re-read on every bash);
+    #   s  the scalar NAME;
+    #   f  the function NAME, VALUE its earlier `declare -f` text
+    #      (kk._image__fntext);
+    #   r  a read of P's variable NAME (I2b fix round): KEY s = a scalar (`-`
+    #      unset, `=` its value), a = an indexed array (VALUE `COUNT:LAST`, the
+    #      element count and the last index: an append writes LAST+1), A = an
+    #      associative array (VALUE its element count).
     # (Unchained: kkore's registration slots only; chained also P's kklass
-    # tables and registries, scalars, redefined functions.)
+    # tables and registries, scalars, redefined functions, reads.)
     # (per entry the fewest operations — ~35 µs on the laptop each otherwise:
     # the kind is the first byte, a table's name is checked once per table)
     for __kk_hc_x in "${__kk_img_base[@]}"; do
@@ -911,7 +933,6 @@ kk._image__fits() {
                         *a*) __kk_hc_m=a ;;
                         *)   if [[ -z ${!__kk_hc_n+x} ]]; then __kk_hc_m=-; else __kk_hc_m=x; fi ;;
                     esac
-                    declare -n __kk_hc_r=$__kk_hc_n
                 fi
                 case $__kk_hc_m in
                     A)  ;;
@@ -923,8 +944,8 @@ kk._image__fits() {
                     *)  __kk_im_why="$__kk_hc_n[$__kk_hc_k] differs from the image's base"; return 2 ;;
                 esac
                 case $__kk_hc_x in
-                    -*) [[ -z ${__kk_hc_r[$__kk_hc_k]+x} ]] && continue ;;
-                    =*) [[ -n ${__kk_hc_r[$__kk_hc_k]+x} && ${__kk_hc_r[$__kk_hc_k]} == "${__kk_hc_x:2}" ]] && continue ;;
+                    -*) eval "[[ -z \${$__kk_hc_t[\$__kk_hc_k]+x} ]]" && continue ;;
+                    =*) eval "[[ -n \${$__kk_hc_t[\$__kk_hc_k]+x} && \${$__kk_hc_t[\$__kk_hc_k]} == \"\${__kk_hc_x:2}\" ]]" && continue ;;
                     *)  __kk_im_why="the image base list is damaged"; return 1 ;;
                 esac
                 __kk_hc_n+="[$__kk_hc_k]" ;;
@@ -936,16 +957,39 @@ kk._image__fits() {
                     =*) [[ -n ${!__kk_hc_n+x} && ${!__kk_hc_n} == "${__kk_hc_x:2}" ]] && continue ;;
                     *)  __kk_im_why="the image base list is damaged"; return 1 ;;
                 esac ;;
+            r)  if [[ -z $__kk_hc_n || $__kk_hc_n == *[!A-Za-z0-9_]* || $__kk_hc_n == [0-9]* ]]; then
+                    __kk_im_why="the image base list is damaged"; return 1
+                fi
+                __kk_hc_m="$__kk_hc_n[@]"
+                __kk_hc_m=${!__kk_hc_m@a}
+                case $__kk_hc_k$__kk_hc_x in
+                    s-*) [[ $__kk_hc_m != *[aA]* && -z ${!__kk_hc_n+x} ]] && continue ;;
+                    s=*) [[ $__kk_hc_m != *[aA]* && -n ${!__kk_hc_n+x} && ${!__kk_hc_n} == "${__kk_hc_x:2}" ]] && continue ;;
+                    a=*) if [[ $__kk_hc_m == *a* ]]; then
+                             eval "__kk_hc_l=(\"\${!$__kk_hc_n[@]}\")"
+                             __kk_hc_s=0:
+                             (( ! ${#__kk_hc_l[@]} )) || __kk_hc_s=${#__kk_hc_l[@]}:${__kk_hc_l[-1]}
+                             [[ $__kk_hc_s == "${__kk_hc_x:2}" ]] && continue
+                         fi ;;
+                    A=*) if [[ $__kk_hc_m == *A* ]]; then
+                             eval "__kk_hc_s=\${#$__kk_hc_n[@]}"
+                             [[ $__kk_hc_s == "${__kk_hc_x:2}" ]] && continue
+                         fi ;;
+                    *)   __kk_im_why="the image base list is damaged"; return 1 ;;
+                esac
+                __kk_im_why="$__kk_hc_n, which this call's load reads, differs from when the image was made"; return 2 ;;
             f)  if [[ -z $__kk_hc_n || $__kk_hc_n == *[!A-Za-z0-9_.:-]* || $__kk_hc_x != =* ]]; then
                     __kk_im_why="the image base list is damaged"; return 1
                 fi
                 if declare -F -- "$__kk_hc_n" >/dev/null; then
                     __kk_hc_e=0
                     kk._image__fntext "$__kk_hc_n" || __kk_hc_e=$?
-                    if (( __kk_hc_e == 2 )); then
-                        __kk_im_why="no $__kk_im_name.fnc (the function text check of this image)"; return 1
-                    fi
-                    [[ $__kk_hc_e != 0 || $__kk_hc_q != "${__kk_hc_x:2}" ]] || continue
+                    case $__kk_hc_e in
+                        0)  [[ $__kk_hc_q != "${__kk_hc_x:2}" ]] || continue ;;
+                        2)  __kk_im_why="no $__kk_im_name.fnc (the function text check of this image)"; return 1 ;;
+                        3)  __kk_im_why="$__kk_im_dir/$__kk_im_name.fnc is not a regular file of this user (a symbolic link, a folder, another user's): the function text check cannot run"; return 2 ;;
+                        *)  __kk_im_why="cannot write or read $__kk_im_dir/$__kk_im_name.fnc (the function text check of this image)"; return 2 ;;
+                    esac
                 fi
                 __kk_hc_n+="()" ;;
             *)  __kk_im_why="the image base list is damaged"; return 1 ;;
@@ -961,11 +1005,13 @@ kk._image__fits() {
 # image's own: the writer makes it, under umask 077, with every image that
 # redefines a function; a start writes over it, keeping its mode, and does
 # not remove it — pruning and --forget take it with its image) and read it
-# back. rc 1 when it cannot be read; 2 when NAME.fnc is missing (or not this
-# user's regular file): a miss, the writer makes it again. Only images that
-# redefine an earlier function (chained: a unit of this call redefining one
-# of P's) run it. (__KK_IMG_FNFILE non-empty: the NAME.fnc path on bash >=
-# 5.3 too — a test seam, kkore 028.)
+# back. rc 2 when NAME.fnc is missing (a miss: the writer makes it again); 3
+# when it exists but is not a regular file of this user's (a symbolic link —
+# refused, not followed —, a folder, another user's: a plain kk.uses); 4
+# when it cannot be written or read (a read-only folder: a plain kk.uses);
+# 1 an empty text. Only images that redefine an earlier function (chained:
+# a unit of this call redefining one of P's) run it. (__KK_IMG_FNFILE
+# non-empty: the NAME.fnc path on bash >= 5.3 too — a test seam, kkore 028.)
 kk._image__fntext() {
     local __kk_it_f=$__kk_im_dir/$__kk_im_name.fnc __kk_it_z=""
     __kk_hc_q=""
@@ -974,8 +1020,10 @@ kk._image__fntext() {
         [[ -n $__kk_hc_q ]]
         return
     fi
-    [[ ! -L $__kk_it_f && -f $__kk_it_f && -O $__kk_it_f ]] || return 2
-    { declare -f -- "$1" > "$__kk_it_f"; } 2>/dev/null || return 1
+    if [[ -L $__kk_it_f ]]; then return 3; fi
+    [[ -e $__kk_it_f ]] || return 2
+    [[ -f $__kk_it_f && -O $__kk_it_f ]] || return 3
+    { declare -f -- "$1" > "$__kk_it_f"; } 2>/dev/null || return 4
     { IFS= read -r -d '' __kk_it_z < "$__kk_it_f"; } 2>/dev/null
     while [[ $__kk_it_z == *$'\n' ]]; do __kk_it_z=${__kk_it_z%$'\n'}; done
     __kk_hc_q=$__kk_it_z

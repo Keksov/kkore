@@ -161,24 +161,45 @@
 # registries, scalars (element by element, an element removed too), a
 # function of P's it redefined — each with its earlier value (a function: its
 # earlier text) in the base list. A start checks the base before sourcing,
-# fork-free (bash < 5.3 reads a function's text through the image's NAME.fnc):
-# a slot that differs is a plain kk.uses, nothing written; the undo of a
-# failed start puts every base slot back. The writer proves such an image in
-# ONE fresh process: P loaded by its files as its own load leaves it, the
-# image applied as a start applies it, the state compared with this one
-# (names only this script made are ignored) — so an image never depends on
-# what the script changed in P before kk.image (a P class changed by
-# defineMethod, a P variable, kklass's scratch globals METHOD_BODY /
-# METHOD_WRAPPER left by a class the script built: no image, a hold); the M1 probe below runs
-# there too, on top of P. Limit (plan R13, documented): the base check sees
-# the slots the delta writes, not what this call's load READ from P — a script
-# that changes such state in P (a variable a unit copies, a parent class's
-# method) after an image was made gets the image made against the unchanged
-# P; set KBOOL_IMAGE_CHAIN=off for such a program. A chained load is refused
-# (no image, a hold) when it changes the hash table, an exported variable,
-# the attributes of a variable or removes one; a header-less file loaded by
-# path before kk.image makes it a plain kk.uses. Holds and pruning go by
-# (request, P, mode): the image file name hashes all three.
+# fork-free (bash < 5.3 reads a function's text through the image's NAME.fnc:
+# one that is a symbolic link, a folder, another user's or not writable makes
+# the start a plain kk.uses and the writer hold, naming it): a slot that
+# differs is a plain kk.uses, nothing written; the undo of a failed start puts
+# every base slot back. The base list also holds the READ base: every
+# variable of P's that this call's unit files name as a word (comments cut) —
+# P's load made it, or it came from the environment — with its state before
+# the load (a scalar's value or unset, an indexed array's element count and
+# last index, an associative one's count; not bash's own, RESULT, kkore's or
+# a hook VAR), so a script that changed such state after the image was made
+# (an environment preset of P's default, a list it shortened, a registry key
+# it added, a variable a unit copies) gets a plain kk.uses. kklass bumps
+# _KKLASS_GEN on every class built or method defined: a load that builds a
+# class has it in its base, so a script that changed a P class after the
+# image was made (defineMethod) gets a plain kk.uses too. The writer proves
+# such an image in ONE fresh process: P loaded by its files as its own load
+# leaves it (P's loads run again there: their side effects — files, output —
+# repeat once per chained miss), the image applied as a start applies it, the
+# state compared with this one (names only this script made are ignored) — so
+# an image never depends on what the script changed in P before kk.image (a P
+# class changed by defineMethod, a P variable, a class the script built: no
+# image, a hold); the M1 probe below runs there too, on top of P. Limit (plan
+# R13, documented): an image is valid for P as its own fresh load leaves it
+# in the writer's environment, plus the read base — reads through P's
+# FUNCTIONS (a unit calling a P function that reads P state), and names the
+# word scan cannot see (built by eval or indirection, `${!name}`), are not
+# guarded; set KBOOL_IMAGE_CHAIN=off for such a program. A chained load is
+# refused (no image, a hold) when it changes the hash table, an exported
+# variable, a nameref, a readonly variable, the attributes of a variable or
+# removes one, or when an earlier value (or key) it would keep in the base
+# list holds a CR byte (the MSYS-family parsers drop it); a header-less file
+# loaded by path before kk.image makes it a plain kk.uses. Holds and pruning
+# go by (request, P, mode): the image file name hashes all three, so a hold
+# is shared by every script with that key — one whose load is refused (a
+# variable it changed in P) holds the same key for a clean one for an hour.
+# Not worth an image: a writer whose normal load took less than 50 ms writes
+# none and holds (an image start costs about as much: tstopwatch on a 20-unit
+# P hit in 59-66 ms where its plain load took 36 ms, Git-bash on the laptop;
+# __KK_IMG_MINLOAD=MS, a test seam, sets another threshold).
 # Also a plain kk.uses: inside a unit's load or a settings hook, under `set -a`,
 # a relative KBOOL_IMAGE_DIR, a folder that cannot be made (its deepest
 # existing level not writable: no writer either) or exists unwritable (no
@@ -190,7 +211,11 @@
 # preset: the image would write into it). Limit: a bare `local NAME` (neither
 # a value nor an attribute) in a calling function is not seen, and when NAME
 # is an image ARRAY name the start may end the script (its element lines
-# fail inside the source). VERBOSE_KKLASS=debug prints a `kbool:
+# fail inside the source). Limit (chained): a calling function's local that
+# shadows a P global which a unit sets with `declare -g` — the normal load
+# writes the global, the image's delta line (a plain assignment, sourced in
+# the start) writes the local, and the base check reads the local (equal):
+# once the function returns, a hit leaves the global as it was. VERBOSE_KKLASS=debug prints a `kbool:
 # image: …` line for every reason. An image holds this call's units: their
 # functions, the variables they created (readonly flags last), their kklass
 # tables and their kkore registration (last, with the earlier value of every
@@ -395,8 +420,15 @@ kk._unit_warn() {
 # kk._unit_lexnorm PATH -> __kk_n: absolute, `/`-separated, `.`, `..` and `//`
 # folded; `C:\x` and `C:/x` become `/c/x`. Lexical, so it does not resolve
 # symlinks: used for messages, KBOOL_HOME (validated with -ef) and the keys of
-# header-less files, never as a unit's identity (U18').
+# header-less files, never as a unit's identity (U18'). (A PATH normal
+# already — absolute, no `\`, `//`, `.` or `..` segment, no trailing `/` —
+# is the answer as it is: one test instead of the segment loop, ~0.15 ms a
+# path; load images normalise every prior unit's file on each start, I2b F6.)
 kk._unit_lexnorm() {
+    if [[ $1 == /?* && $1 != *[\\]* && $1 != *//* && $1 != */ && $1 != */./* && $1 != */../* && $1 != */. && $1 != */.. ]]; then
+        __kk_n=$1
+        return 0
+    fi
     local __kk_p="${1//\\//}" __kk_s __kk_o=""
     if [[ $__kk_p == [A-Za-z]:* ]]; then
         __kk_s=${__kk_p:0:1}

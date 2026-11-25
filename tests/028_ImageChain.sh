@@ -9,7 +9,7 @@
 # puts it back; the writer's simulation runs in a fresh process (P as its
 # own load leaves it, the image applied, compared) and refuses an image that
 # depends on what this script changed in P (the writer's side of R13; the
-# reader's side is a documented limit, asserted); holds and pruning per
+# reader's side: the read base, P's variables the load names); holds and pruning per
 # (request, P); KBOOL_IMAGE_CHAIN. Fixture: image_fixture.sh + the units
 # below. The real-unit chains (tstringlist + fv.dlg, kklass classes) are
 # kcl/tests/009_ImageChain.sh.
@@ -34,13 +34,21 @@ REAL_STAT=$(type -P stat)
 
 # the units of the chains:
 #   pb   P: a registry (associative), a list (indexed), an internal default
-#        __PB_N (D6), a variable PB_V, a function pb.f
+#        __PB_N (D6), a variable PB_V, a declared unset PB_D, functions pb.f, pb.g
 #   pc   uses pb; adds to its registry and list, increments __PB_N, copies
-#        PB_V (a READ of P's state: the reader's side of R13)
+#        PB_V (a READ of P's state: the reader's side of R13, the read base)
 #   pd   uses pb; redefines pb.f
 #   pe   uses pb; changes and removes registry elements, keys that are not
 #        plain (a blank, `$(`, `@`, `]`)
 #   pr   uses pb; changes the caller's PRX (no P slot: refused)
+#   pf   uses pb; reads __PB_N, counts PB_LIST and PB_REG (the read base only)
+#   pk   P: kills the simulated start in the writer's fresh process (F1)
+#   pm   uses pb; `: "${PM_OPT:=d}"` (a default of a caller's variable: M1)
+#   ps   uses pb; `: "${PB_D:=d}"` (PB_D declared unset by pb: an `s` delta, `-`)
+#   pa   uses pb; `declare -gi PB_V` (attributes changed: refused)
+#   ph   uses pb; runs od (the hash table changed: refused)
+#   py   loads pz unless the caller set PBY (P as its own load leaves it differs)
+#   pg   uses pb; changes PB_REG[pb] (an `=` element delta)
 #   pq, pz  other prior units
 if_unit "$FX" pb <<'EOF'
 PB_V=1
@@ -49,6 +57,7 @@ declare -ga PB_LIST=(pb)
 : "${__PB_N:=0}"
 pb.f() { echo "pb.f"; }
 pb.g() { PB_G=orig; }
+declare -g PB_D
 EOF
 if_unit "$FX" pc <<'EOF'
 kk.uses pb || return
@@ -79,6 +88,43 @@ if_unit "$FX" pr <<'EOF'
 kk.uses pb || return
 PRX=changed
 EOF
+if_unit "$FX" pf <<'EOF2'
+kk.uses pb || return
+PF_N=$__PB_N
+PF_C=${#PB_LIST[@]}
+PF_R=${#PB_REG[@]}
+pf.n() { echo "pf $PF_N $PF_C $PF_R"; }
+EOF2
+if_unit "$FX" pk <<'EOF2'
+# (in the writer's fresh process only — kk._img__child exports __KK_IMG_KSET
+# there: the simulated start's image check dies, saying nothing)
+if [[ -n ${__KK_IMG_KSET+x} ]]; then kk._img__kidfit() { echo "pk: boom" >&2; exit 7; }; fi
+PK_V=1
+EOF2
+if_unit "$FX" pm <<'EOF2'
+kk.uses pb || return
+: "${PM_OPT:=d}"
+EOF2
+if_unit "$FX" ps <<'EOF2'
+kk.uses pb || return
+: "${PB_D:=d}"
+EOF2
+if_unit "$FX" pa <<'EOF2'
+kk.uses pb || return
+declare -gi PB_V
+EOF2
+if_unit "$FX" ph <<'EOF2'
+kk.uses pb || return
+od </dev/null >/dev/null
+EOF2
+if_unit "$FX" py <<'EOF2'
+[[ -n ${PBY-} ]] || kk.uses pz || return
+PY_V=1
+EOF2
+if_unit "$FX" pg <<'EOF2'
+kk.uses pb || return
+PB_REG[pb]=changed2
+EOF2
 if_unit "$FX" pq <<'EOF'
 PQ_V=1
 EOF
@@ -220,6 +266,41 @@ PDN=${PDIMG##*/}; PDN=${PDN%.img}
 uf_run "$H"'; kk.uses pb; __KK_IMG_FNFILE=1; kk.image pd 2>"$FX/e.txt"; e1; fl "wrote"; [[ -f "'"${PDIMG%.img}.fnc"'" ]] && echo fnc; ls "$FX/img" | grep -c "^pd-.*\.hold$"'
 [[ $UF_OUT == "kbool: image: no $PDN.fnc (the function text check of this image): a normal load, then an image"$'\n'"kbool: image: wrote $PDIMG"$'\n'"fnc"$'\n'"0" ]]
 uf_check "NAME.fnc missing: a miss (no hold), written again with its .fnc" $?
+# NAME.fnc that is not this user's regular file to write (I2b fix round F5):
+# a start (the text path forced) is a plain kk.uses naming it; the writer
+# writes no image and holds, naming it; a symbolic link is refused, never
+# followed; a read-only one is a write failure, said as such
+F=${PDIMG%.img}.fnc
+rm -f "$F"; mkdir "$F"
+uf_run "$H"'; kk.uses pb; __KK_IMG_FNFILE=1; kk.image pd 2>"$FX/e.txt"; e1; pb.f'
+[[ $UF_OUT == "kbool: image: $F is not a regular file of this user (a symbolic link, a folder, another user's): the function text check cannot run; a normal load (kk.uses pd)"$'\n'"pd's pb.f" ]]
+uf_check "a start whose NAME.fnc is a folder: a plain kk.uses, the reason names the .fnc [F5]" $?
+uf_run "$H"'; kk.uses pb; kk.image --rebuild pd 2>"$FX/e.txt"; fl "no image written"; ls "$FX/img" | grep -c "^pd-.*\.hold$"'
+[[ $UF_OUT == "kbool: image: no image written: $F is not a regular file of this user (a folder, another user's): the function text check of this image cannot run"$'\n'"1" ]]
+uf_check "the writer, NAME.fnc a folder: no image, a hold naming the .fnc [F5]" $?
+rmdir "$F"; noholds
+ln -s "$FX/fnc.target" "$F" 2>/dev/null
+if [[ -L $F ]]; then
+    uf_run "$H"'; kk.uses pb; kk.image --rebuild pd 2>"$FX/e.txt"; fl "no image written"; ls "$FX/img" | grep -c "^pd-.*\.hold$"; [[ -e "$FX/fnc.target" ]] && echo followed'
+    [[ $UF_OUT == "kbool: image: no image written: $F is a symbolic link (refused, not followed): the function text check of this image cannot run"$'\n'"1" ]]
+    uf_check "the writer, NAME.fnc a symbolic link: refused (not skipped, not followed), a hold [F5]" $?
+else
+    kt_test_start "the writer, NAME.fnc a symbolic link: refused, a hold [F5]"
+    kt_test_pass "no symbolic links on this runtime (Windows without winsymlinks): the folder case above covers the check"
+fi
+rm -f "$F"; noholds
+uf_run "$H"'; kk.uses pb; kk.image --rebuild pd 2>/dev/null'
+chmod a-w "$F" 2>/dev/null
+if [[ -f $F && ! -w $F ]]; then
+    uf_run "$H"'; kk.uses pb; __KK_IMG_FNFILE=1; kk.image pd 2>"$FX/e.txt"; e1; pb.f'
+    [[ $UF_OUT == "kbool: image: cannot write or read $F (the function text check of this image); a normal load (kk.uses pd)"$'\n'"pd's pb.f" ]]
+    uf_check "a start whose NAME.fnc cannot be written (as in a read-only folder, bash < 5.3): the write failure named, not 'pb.f() differs' [F5]" $?
+else
+    kt_test_start "a start whose NAME.fnc cannot be written: the write failure named [F5]"
+    kt_test_pass "a read-only file stays writable here (root): not testable"
+fi
+chmod u+w "$F" 2>/dev/null
+noholds
 
 # keys that are not plain, a change and a removal of P's elements
 uf_run 'bash "$FX/ch.sh" miss pb pe "$FX/e0.d" >/dev/null; bash "$FX/ch.sh" hit pb pe "$FX/e1.d"; bash "$FX/ch.sh" plain pb pe "$FX/e2.d"; bash "$FX/cmp.sh" "$FX/e2.d" "$FX/e1.d"'
@@ -316,12 +397,35 @@ kt_test_section "028: the writer's fresh-process simulation (§5.2; R13)"
 
 noholds
 uf_run "$H"'; kk.uses pb; kk.image pc 2>/dev/null'
-uf_run "$H"'; kk.uses pb; PB_V=9; kk.image pc 2>/dev/null; echo "copy=$PC_COPY ${__KK_UNIT_PID[pc]-image}"'
-[[ $UF_OUT == "copy=1 image" ]]
-uf_check "R13, the reader's side (a documented limit): an image made against an unchanged P hits after the script changed P's PB_V, which pc's load reads — PC_COPY=1 where a normal load gives 9" $?
+uf_run "$H"'; kk.uses pb; PB_V=9; kk.image pc 2>"$FX/e.txt"; echo "copy=$PC_COPY ${__KK_UNIT_PID[pc]+normal}"; e1'
+[[ $UF_OUT == "copy=9 normal"$'\n'"kbool: image: PB_V, which this call's load reads, differs from when the image was made; a normal load (kk.uses pc)" ]]
+uf_check "R13, the reader's side (the read base, I2b fix round): the script changed P's PB_V, which pc's load reads, after the image was made — a plain kk.uses (PC_COPY=9), no write" $?
+# the read base: pf reads P's __PB_N and counts PB_LIST and PB_REG, changing
+# nothing of P's — no delta, so only its `r` entries tell a P that differs
+uf_run "$H"'; kk.uses pb; kk.image pf 2>/dev/null'
+uf_run "$H"'; kk.uses pb; kk.image pf 2>/dev/null; echo "${__KK_UNIT_PID[pf]-image}"; pf.n'
+[[ $UF_OUT == "image"$'\n'"pf 0 1 4" ]]
+uf_check "the read base: an image of pf (reads P's __PB_N, counts P's list and registry; no delta) hits on an unchanged P" $?
+uf_run "$H"'; export __PB_N=5; kk.uses pb; kk.image pf 2>"$FX/e.txt"; echo "${__KK_UNIT_PID[pf]+normal}"; pf.n; e1'
+[[ $UF_OUT == "normal"$'\n'"pf 5 1 4"$'\n'"kbool: image: __PB_N, which this call's load reads, differs from when the image was made; a normal load (kk.uses pf)" ]]
+uf_check "the read base (a): an environment preset of P's default __PB_N — a plain kk.uses, pf sees 5" $?
+uf_run "$H"'; kk.uses pb; unset "PB_LIST[0]"; kk.image pc 2>"$FX/e.txt"; echo "${__KK_UNIT_PID[pc]+normal} ${!PB_LIST[*]}"; e1'
+[[ $UF_OUT == "normal 0"$'\n'"kbool: image: PB_LIST, which this call's load reads, differs from when the image was made; a normal load (kk.uses pc)" ]]
+uf_check "the read base (b): the caller removed P's list element, pc appends — a plain kk.uses (the append lands at index 0, not at the image's 1)" $?
+uf_run "$H"'; kk.uses pb; PB_REG[zz]=1; kk.image pf 2>"$FX/e.txt"; echo "${__KK_UNIT_PID[pf]+normal}"; pf.n; e1'
+[[ $UF_OUT == "normal"$'\n'"pf 0 1 5"$'\n'"kbool: image: PB_REG, which this call's load reads, differs from when the image was made; a normal load (kk.uses pf)" ]]
+uf_check "the read base (c): the caller added a key to P's registry, which pf counts — a plain kk.uses (5, not the image's 4)" $?
 uf_run "$H"'; kk.uses pb; PB_V=9; kk.image --rebuild pc 2>"$FX/e.txt"; fl "no image written"; echo "copy=$PC_COPY"; ls "$FX/img" | grep -c "^pc-.*\.hold$"'
 [[ $UF_OUT == "kbool: image: no image written: the simulated image start differs: V:PB_V differs from the writer's"$'\n'"copy=9"$'\n'"1" ]]
 uf_check "R13, the writer's side: the script changed P before kk.image — the fresh process (P as its own load leaves it) differs: no image, a hold" $?
+noholds
+uf_run "$H"'; kk.uses pb pk; kk.image --rebuild pc 2>"$FX/e.txt"; fl "no image written"; ls "$FX/img" | grep -c "^pc-.*\.hold$"'
+[[ $UF_OUT == "kbool: image: no image written: the simulated image start on the prior set as its own load leaves it failed: the simulated start died (rc 7) before it said why: a fatal error inside the image check, the source or the dump (__KK_IMG_KIDERR=FILE keeps its stderr)"$'\n'"1" ]]
+uf_check "a simulated start that dies before it says why (a P unit kills its image check, in the fresh process only): its rc named, no image, a hold (CI 45564636006: bash 5.1 said '?')" $?
+noholds
+uf_run "$H"'; kk.uses pb pk; __KK_IMG_KIDERR=$FX/kid.err kk.image --rebuild pc 2>/dev/null; cat "$FX/kid.err"'
+[[ $UF_OUT == *"pk: boom"* ]]
+uf_check "__KK_IMG_KIDERR=FILE: the fresh process's stderr kept in FILE (the seam that names a fatal error of the simulated start)" $?
 noholds
 uf_run "$H"'; PRX=orig; kk.uses pb; kk.image pr 2>"$FX/e.txt"; fl "no image written"; echo "$PRX"; ls "$FX/img" | grep -c "^pr-.*\.hold$"'
 [[ $UF_OUT == "kbool: image: no image written: the simulated image start on the prior set as its own load leaves it failed: PRX differs from the image's base"$'\n'"changed"$'\n'"1" ]]
@@ -347,6 +451,65 @@ uf_check "an exported preset of P's default changed by this call's load: a chang
 noholds
 
 # ---------------------------------------------------------------------------
+kt_test_section "028: each refusal and check on its own (the critic's mutation survivors, I2b fix round F4)"
+
+noholds
+uf_run "$H"'; kk.uses pb; PB_REG[z]=1; kk.image --rebuild pc 2>"$FX/e.txt"; fl "no image written"'
+[[ $UF_OUT == "kbool: image: no image written: the simulated image start differs: V:PB_REG[z]=1 (the writer's, not so in the simulated start)" ]]
+uf_check "a key the caller added to P's registry before kk.image: the simulated start lacks it — the compare's element count differs, no image" $?
+noholds
+uf_run "$H"'; kk.uses pb; PM_OPT=x; kk.image --rebuild pm 2>"$FX/e.txt"; fl "no image written"'
+[[ $UF_OUT == "kbool: image: no image written: the variable PM_OPT existed before the load, and the load sets it when it does not (a preset or a caller's variable would hide the unit's own value from the image)" ]]
+uf_check "a caller's PM_OPT that pm's load defaults (\`: \${PM_OPT:=d}\`): the chained M1 probe on top of P refuses, no image" $?
+noholds
+uf_run "$H"'; kk.uses pb; kk.image --rebuild ps 2>/dev/null'
+uf_run "$H"'; kk.uses pb; PB_D=x; kk.image ps 2>"$FX/e.txt"; e1; echo "PB_D=$PB_D"'
+[[ $UF_OUT == "kbool: image: PB_D differs from the image's base; a normal load (kk.uses ps)"$'\n'"PB_D=x" ]]
+uf_check "P's declared unset PB_D, which ps defaults (an \`s\` delta, \`-\`), set before the start: a plain kk.uses keeps the caller's x" $?
+noholds
+uf_run "$H"'; kk.uses pb; kk.image --rebuild pa 2>"$FX/e.txt"; fl "no image written"'
+[[ $UF_OUT == "kbool: image: no image written: the load changed the attributes of the existing variable PB_V (-- -> -i)" ]]
+uf_check "a load that changes the attributes of P's PB_V (declare -gi): no image" $?
+noholds
+uf_run "$H"'; kk.uses pb; kk.image --rebuild ph 2>"$FX/e.txt"; fl "no image written"'
+[[ $UF_OUT == "kbool: image: no image written: the load changed the hash table (od): no chained image" ]]
+uf_check "a load that runs a command (od): the hash table changed — no chained image" $?
+noholds
+uf_run "$H"'; PBY=1; kk.uses py; kk.image --rebuild pc 2>"$FX/e.txt"; fl "no image written"'
+[[ $UF_OUT == "kbool: image: no image written: the fresh-process simulation loaded another prior set ("*"pz="*")" ]]
+uf_check "a P unit that loads pz unless the caller set PBY: the fresh process loads another prior set — no image" $?
+noholds
+uf_run "$H"'; printf "HL_V=1\n" > "$FX/hl.sh"; kk.uses "$FX/hl.sh"; kk.image pc 2>"$FX/e.txt"; e1'
+[[ $UF_OUT == "kbool: image: a file without a unit header is loaded by path already (it cannot be part of a prior set); a normal load (kk.uses pc)" ]]
+uf_check "a header-less file loaded by path before kk.image: no prior set — a plain kk.uses" $?
+uf_run "$H"'; source "$FX/kcl/pq/pq.sh"; __KK_UNIT_FAIL[pq]=1; kk.image pc 2>"$FX/e.txt"; e1'
+[[ $UF_OUT == "kbool: image: unit 'pq' is not completely loaded; a normal load (kk.uses pc)" ]]
+uf_check "a prior unit that is not complete (plain-sourced, then tainted): a plain kk.uses" $?
+uf_run "$H"'; kk.uses pb; __KK_UNIT_ORDER=("${__KK_UNIT_ORDER[@]:0:${#__KK_UNIT_ORDER[@]}-1}"); kk.image pc 2>"$FX/e.txt"; e1'
+[[ $UF_OUT == "kbool: image: a loaded unit is not in the load order list; a normal load (kk.uses pc)" ]]
+uf_check "a registered unit missing from the load order list: a plain kk.uses" $?
+noholds
+uf_run "$H"'; kk.uses pb; kk.image --rebuild pd 2>/dev/null'
+uf_run "$H"'; kk.uses pb; unset -f pb.f; kk.image pd 2>"$FX/e.txt"; e1'
+[[ $UF_OUT == "kbool: image: pb.f() differs from the image's base; a normal load (kk.uses pd)" ]]
+uf_check "P's function pb.f, which pd redefines, removed by the caller first: a plain kk.uses (its base text is gone)" $?
+noholds
+uf_run "$H"'; kk.uses pb; kk.image --rebuild pg 2>/dev/null'
+uf_run "$H"'; kk.uses pb; unset PB_REG; kk.image pg 2>"$FX/e.txt"; e1'
+[[ $UF_OUT == "kbool: image: PB_REG[pb] differs from the image's base; a normal load (kk.uses pg)" ]]
+uf_check "P's registry removed by the caller, pg changes PB_REG[pb] (an \`=\` element delta): a plain kk.uses" $?
+noholds
+# (the file-name hash's short rows: KBOOL_HOME/kcl/N/N.sh and KBOOL_HOME/N/N.sh
+# are two rows, two file names — I2b fix round F7)
+mkdir -p "$FX/pq"; cp "$FX/kcl/pq/pq.sh" "$FX/pq/pq.sh"; touch -t 202001010000 "$FX/pq/pq.sh"
+uf_run "$H"'; kk.uses "$FX/kcl/pq/pq.sh"; kk.image --path pc 2>/dev/null'; A=$UF_OUT
+uf_run "$H"'; kk.uses "$FX/pq/pq.sh"; kk.image --path pc 2>/dev/null'; B=$UF_OUT
+rm -f "$FX/pq/pq.sh"; rmdir "$FX/pq"
+UF_OUT="kcl=$A home=$B"
+[[ $A == "$FX/img/pc-"*.img && $B == "$FX/img/pc-"*.img && $A != "$B" ]]
+uf_check "a prior unit at KBOOL_HOME/kcl/N/N.sh and the same at KBOOL_HOME/N/N.sh: two image file names" $?
+
+# ---------------------------------------------------------------------------
 kt_test_section "028: holds and pruning per (request, P) (§7.4, §7.5)"
 
 uf_run "$H"'; kk.uses pb; kk.image --rebuild pc 2>/dev/null'
@@ -361,6 +524,12 @@ uf_run "$H"'; kk.image pc 2>"$FX/e.txt"; e1'
 [[ $B == "kbool: image: no image $PCIMG yet; held (test, "*" s ago); a normal load (kk.uses pc)" && $UF_OUT == "kbool: image: loaded from $A" ]]
 uf_check "a hold is per (request, P, mode): pc's chained hold stops pc's chained writer, not the unchained image of pc" $?
 mv -f "$FX/pc.keep" "$PCIMG"
+noholds
+# "not worth it" (I2b fix round F6): a normal load under __KK_IMG_MINLOAD ms
+# (default 50; this suite runs with 0) — no image, a hold
+uf_run "$H"'; kk.uses pb; __KK_IMG_MINLOAD=600000 kk.image --rebuild pc 2>"$FX/e.txt"; fl "no image written"; ls "$FX/img" | grep -c "^pc-.*\.hold$"'
+[[ $UF_OUT == "kbool: image: no image written: not worth an image: the normal load took "*" ms, under 600000 ms (an image start costs about as much)"$'\n'"1" ]]
+uf_check "a normal load under __KK_IMG_MINLOAD ms: not worth an image — none written, a hold [F6]" $?
 noholds
 uf_run "$H"'; kk.uses pb; kk.image --rebuild pc 2>/dev/null'
 if_pfield "$PCIMG" 4; PR=$IF_F
