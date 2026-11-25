@@ -115,10 +115,11 @@ declare -ga __KK_IMG_REGA=(__KK_UNITS __KK_UNIT_SRC __KK_UNIT_BOT __KK_UNIT_DONE
     __KK_UNIT_ORDER __KK_UNIT_SETTINGS __KK_SETTINGS_VARS __KK_NAMESPACES)
 declare -g __KK_IMG_REG=" __KK_UNITS __KK_UNIT_SRC __KK_UNIT_BOT __KK_UNIT_DONE __KK_UNIT_CLASSES __KK_UNIT_FILES __KK_UNIT_ORDER __KK_UNIT_SETTINGS __KK_SETTINGS_VARS __KK_NAMESPACES "
 declare -g __KK_IMG_NEVER=" DIRSTACK GROUPS OLDPWD __KK_UNIT_CAND __KK_UNIT_IDX __KK_UNIT_IDX_OK __KK_UNIT_RES __KK_UNIT_HIT __KK_FILE_PWD __KK_UNIT_PID __KK_SETTINGS_RUN __kk_unit_rc BASH_CMDS BASH_ALIASES "
-# bash's own variables and the environment's usual ones: units assign them
+# bash's own variables and the environment's usual ones (POSIX, Windows, MSYS2,
+# Cygwin; LC_*, XDG_*, SSH_* by pattern there): units assign them
 # in their functions (`local IFS=`, `PATH=`, `REPLY=`), so they are no
-# candidates of kk._img__assigned (M1); LC_* by pattern there
-declare -g __KK_IMG_BASHV=" BASH BASHOPTS BASHPID BASH_ALIASES BASH_ARGC BASH_ARGV BASH_ARGV0 BASH_CMDS BASH_COMMAND BASH_COMPAT BASH_ENV BASH_EXECUTION_STRING BASH_LINENO BASH_LOADABLES_PATH BASH_MONOSECONDS BASH_REMATCH BASH_SOURCE BASH_SUBSHELL BASH_TRAPSIG BASH_VERSINFO BASH_VERSION BASH_XTRACEFD CDPATH CHILD_MAX COLUMNS COMPREPLY COMP_CWORD COMP_KEY COMP_LINE COMP_POINT COMP_TYPE COMP_WORDBREAKS COMP_WORDS COPROC DIRSTACK EMACS ENV EPOCHREALTIME EPOCHSECONDS EUID EXECIGNORE FCEDIT FIGNORE FUNCNAME FUNCNEST GLOBIGNORE GLOBSORT GROUPS HISTCMD HISTCONTROL HISTFILE HISTFILESIZE HISTIGNORE HISTSIZE HISTTIMEFORMAT HOME HOSTFILE HOSTNAME HOSTTYPE IFS IGNOREEOF INPUTRC INSIDE_EMACS LANG LANGUAGE LINENO LINES LOGNAME MACHTYPE MAIL MAILCHECK MAILPATH MAPFILE OLDPWD OPTARG OPTERR OPTIND OSTYPE PATH PIPESTATUS POSIXLY_CORRECT PPID PROMPT_COMMAND PROMPT_DIRTRIM PS0 PS1 PS2 PS3 PS4 PWD RANDOM READLINE_ARGUMENT READLINE_LINE READLINE_MARK READLINE_POINT REPLY RESULT SECONDS SHELL SHELLOPTS SHLVL SRANDOM TEMP TERM TIMEFORMAT TMOUT TMP TMPDIR TZ UID USER "
+# candidates of kk._img__assigned (M1)
+declare -g __KK_IMG_BASHV=" BASH BASHOPTS BASHPID BASH_ALIASES BASH_ARGC BASH_ARGV BASH_ARGV0 BASH_CMDS BASH_COMMAND BASH_COMPAT BASH_ENV BASH_EXECUTION_STRING BASH_LINENO BASH_LOADABLES_PATH BASH_MONOSECONDS BASH_REMATCH BASH_SOURCE BASH_SUBSHELL BASH_TRAPSIG BASH_VERSINFO BASH_VERSION BASH_XTRACEFD CDPATH CHILD_MAX COLUMNS COMPREPLY COMP_CWORD COMP_KEY COMP_LINE COMP_POINT COMP_TYPE COMP_WORDBREAKS COMP_WORDS COPROC DIRSTACK EMACS ENV EPOCHREALTIME EPOCHSECONDS EUID EXECIGNORE FCEDIT FIGNORE FUNCNAME FUNCNEST GLOBIGNORE GLOBSORT GROUPS HISTCMD HISTCONTROL HISTFILE HISTFILESIZE HISTIGNORE HISTSIZE HISTTIMEFORMAT HOME HOSTFILE HOSTNAME HOSTTYPE IFS IGNOREEOF INPUTRC INSIDE_EMACS LANG LANGUAGE LINENO LINES LOGNAME MACHTYPE MAIL MAILCHECK MAILPATH MAPFILE OLDPWD OPTARG OPTERR OPTIND OSTYPE PATH PIPESTATUS POSIXLY_CORRECT PPID PROMPT_COMMAND PROMPT_DIRTRIM PS0 PS1 PS2 PS3 PS4 PWD RANDOM READLINE_ARGUMENT READLINE_LINE READLINE_MARK READLINE_POINT REPLY RESULT SECONDS SHELL SHELLOPTS SHLVL SRANDOM TEMP TERM TIMEFORMAT TMOUT TMP TMPDIR TZ UID USER ALLUSERSPROFILE APPDATA COLORTERM COMMONPROGRAMFILES COMPUTERNAME COMSPEC ComSpec CYGWIN DBUS_SESSION_BUS_ADDRESS DISPLAY EXEPATH HOMEDRIVE HOMEPATH HTTPS_PROXY HTTP_PROXY INFOPATH LD_LIBRARY_PATH LOCALAPPDATA LOGONSERVER LS_COLORS MANPATH MINGW_PREFIX MSYS MSYSTEM MSYSTEM_PREFIX NO_PROXY NUMBER_OF_PROCESSORS ORIGINAL_PATH ORIGINAL_TEMP ORIGINAL_TMP OS PATHEXT PKG_CONFIG_PATH PROCESSOR_ARCHITECTURE PROCESSOR_IDENTIFIER PROCESSOR_LEVEL PROCESSOR_REVISION PROGRAMDATA PROGRAMFILES ProgramData ProgramFiles PUBLIC SESSIONNAME SYSTEMDRIVE SYSTEMROOT SystemDrive SystemRoot TERM_PROGRAM USERDOMAIN USERNAME USERPROFILE WAYLAND_DISPLAY WINDIR windir http_proxy https_proxy no_proxy "
 # kbool.sh's own variables beside __KK_* / __KLIB_* / KBOOL_* (pre-existing in
 # every writer: no candidates of kk._img__assigned)
 declare -g __KK_IMG_KBOOLV=" EXIT_ON_ERROR_ENABLED REPORT_ERRORS_ENABLED TRAP_ERRORS_ENABLED __kk_unit_rc "
@@ -555,38 +556,45 @@ kk._img_now() { __kk_imw_now=$EPOCHSECONDS; }
 # variable that existed before the load is one the load would set if it did
 # not exist. Such a variable is pre-existing and may look unchanged — an
 # environment preset of a unit's internal default (`: "${__X:=d}"`, D6, also
-# inside an init function or an indented `if`), a caller's local hiding a
-# unit global (`declare -g`) — so the writer would leave it out and every
-# image start would lack it. Three steps, the first two in memory:
+# inside an init function or an indented `if`), an exported preset of a
+# public one (`: "${MYAPP_X:=0}"`), a caller's local hiding a unit global
+# (`declare -g`) — so the writer would leave it out and every image start
+# would lack it. Three steps, the first two in memory:
 #   1. the candidates: the variables of before the load (__kk_imw_vn) that
-#      are not bash's or the environment's usual ones (__KK_IMG_BASHV, LC_*),
-#      not KBOOL_* / VERBOSE_KKLASS (keyed), not hook VARs; none -> done;
+#      are not bash's or the environment's usual ones (__KK_IMG_BASHV, LC_*,
+#      XDG_*, SSH_*), not KBOOL_* / VERBOSE_KKLASS (keyed), not hook VARs;
+#      exported ones too; none -> done;
 #   2. those that occur as a whole word in this call's unit files once `#`
-#      comments are cut (a cheap, safe approximation); none -> done (the
-#      common case);
-#   3. the probe: ONE fresh `bash` with the same environment minus those
-#      names (exported ones unset with env -u; a caller's local or global is
-#      not in a fresh process at all) sources kbool.sh, applies the project,
-#      loads the same request from the same caller and names every one of
-#      them that the load set (set afterwards, not before it: kbool.sh's own
-#      state such as klib's __KLIB_FRAME_STACK is no finding). A subshell cannot ask it: after the
-#      load the units are registered (a re-load is a no-op), and before it
-#      the closure is unknown (no step 2: an extra load whenever any
+#      comments are cut (a cheap, safe approximation); none -> done;
+#   3. the probe: ONE fresh `bash` in this shell's $PWD (the calling file as
+#      this shell resolved it, below) with the same
+#      environment minus those names (exported ones unset with env -u; a
+#      caller's local or global is not in a fresh process at all) plus this
+#      shell's own settings, exported or not (every KBOOL_* — KBOOL_CONFIG
+#      made absolute —, VERBOSE_KKLASS, __KK_CFG_ETC, HOME, USERPROFILE,
+#      ProgramData, LANG, LC_ALL, LC_CTYPE; KBOOL_IMAGE=off) sources kbool.sh,
+#      applies the project, loads the same request from the same caller and
+#      names every one of them that the load set (set afterwards, not before
+#      it: kbool.sh's own state such as klib's __KLIB_FRAME_STACK is no
+#      finding). Fail-closed: the probe ends with a marker line (the load's
+#      rc) after the units it registered (NAME=FILE, in load order); a
+#      missing marker, an rc other than 0 or other units = a refusal with a
+#      hold (the next attempt would do the same). A subshell cannot ask it:
+#      after the load the units are registered (a re-load is a no-op), and
+#      before it the closure is unknown (no step 2: an extra load whenever any
 #      candidate exists). Costs one load in the fresh process, only when
-#      step 2 found a name.
+#      step 2 found a name (most first writes of a real unit set: ~1 s for
+#      fv.dlg; a note for the I4 miss target).
 kk._img__assigned() {
-    local - __kk_ima_t="" __kk_ima_c __kk_ima_u __kk_ima_n __kk_ima_r __kk_ima_o="" IFS=$'\n'
-    local -a __kk_ima_l=() __kk_ima_c1=() __kk_ima_m=() __kk_ima_e=()
+    local - __kk_ima_t="" __kk_ima_c __kk_ima_u __kk_ima_n __kk_ima_r __kk_ima_o="" __kk_ima_x __kk_ima_end="" __kk_ima_j="" __kk_ima_cl="" __kk_n="" IFS=$'\n'
+    local -a __kk_ima_l=() __kk_ima_c1=() __kk_ima_m=() __kk_ima_e=() __kk_ima_s=() __kk_ima_w=() __kk_ima_g=()
     set -f
     for __kk_ima_n in "${__kk_imw_vn[@]}"; do
         [[ -n $__kk_ima_n && $__kk_ima_n != *[!A-Za-z0-9_]* && $__kk_ima_n != [0-9]* ]] || continue   # (`local -` lists as -)
         [[ -z ${__kk_imk_hv[$__kk_ima_n]-} && $__KK_IMG_BASHV != *" $__kk_ima_n "* && $__kk_ima_n != LC_* \
+           && $__kk_ima_n != XDG_* && $__kk_ima_n != SSH_* \
            && $__kk_ima_n != KBOOL_* && $__kk_ima_n != VERBOSE_KKLASS && $__kk_ima_n != __KLIB_* && $__kk_ima_n != __KK_* \
            && $__KK_IMG_KBOOLV != *" $__kk_ima_n "* ]] || continue     # (bash's, the environment's, kbool.sh's own)
-        # an exported name not starting with `_` is the environment's: a unit
-        # reads such a preset in a settings hook (§5.1, kcl's lint) — only
-        # internal `_` names and the caller's own variables are candidates
-        [[ $__kk_ima_n == _* || ${!__kk_ima_n@a} != *x* ]] || continue
         __kk_ima_c1+=("$__kk_ima_n")
     done
     (( ${#__kk_ima_c1[@]} )) || return 0
@@ -604,21 +612,74 @@ kk._img__assigned() {
         if [[ $__kk_ima_t =~ $__kk_ima_r ]]; then __kk_ima_m+=("$__kk_ima_n"); fi
     done
     (( ${#__kk_ima_m[@]} )) || return 0
-    kk._image_dbg "a fresh-process probe of variables that existed before the load: ${__kk_ima_m[*]}"
-    # the probe (a script file: no stdin / -c program text)
+    printf -v __kk_ima_j "%s " "${__kk_ima_m[@]}"; __kk_ima_j=${__kk_ima_j% }
+    kk._image_dbg "a fresh-process probe of variables that existed before the load: $__kk_ima_j"
     for __kk_ima_n in "${__kk_ima_m[@]}"; do __kk_ima_e+=(-u "$__kk_ima_n"); done
-    printf '%s\n' 'source "$1" >/dev/null 2>&1 || exit 9' \
-        '[[ -z $2 ]] || kk.project "$2" >/dev/null 2>&1' \
-        '__kk_p_c=$3 __kk_p_o=$4 __kk_p_n=$5 __kk_p_b=" "; shift 5' \
+    # this shell's settings, exported or not (an unexported KBOOL_CONFIG set
+    # before kbool.sh was sourced is no part of the environment)
+    for __kk_ima_n in "${!KBOOL_@}" VERBOSE_KKLASS __KK_CFG_ETC HOME USERPROFILE ProgramData LANG LC_ALL LC_CTYPE; do
+        [[ $__kk_ima_n != KBOOL_VERSION && $__kk_ima_n != KBOOL_IMAGE ]] || continue
+        if [[ -n ${!__kk_ima_n+x} && ${!__kk_ima_n@a} != *[aA]* ]]; then
+            __kk_ima_x=${!__kk_ima_n}
+            if [[ $__kk_ima_n == KBOOL_CONFIG && -n $__kk_ima_x ]]; then
+                case $__kk_ima_x in
+                    /*|\\*|[A-Za-z]:*) ;;
+                    *) kk._cfg_fold "$PWD/$__kk_ima_x"; __kk_ima_x=$__kk_n ;;
+                esac
+            fi
+            __kk_ima_s+=("$__kk_ima_n=$__kk_ima_x")
+        else
+            __kk_ima_e+=(-u "$__kk_ima_n")
+        fi
+    done
+    # the probe (a script file: no stdin / -c program text); the marker last
+    printf '%s\n' 'cd -- "$6" 2>/dev/null || exit 9' \
+        'source "$1" >/dev/null 2>&1 || exit 9' \
+        'if [[ -n $2 ]]; then kk.project "$2" >/dev/null 2>&1 || exit 9; fi' \
+        '__kk_p_c=$3 __kk_p_o=$4 __kk_p_n=$5 __kk_p_b=" " __kk_p_k=${#__KK_UNIT_ORDER[@]}; shift 6' \
         'IFS=$'"'"'\x1f'"'"'; for __kk_p_x in $__kk_p_n; do [[ -z ${!__kk_p_x+x} && -z ${!__kk_p_x@a} ]] || __kk_p_b+="$__kk_p_x "; done; unset IFS' \
-        'kk._uses "$__kk_p_c" "$@" >/dev/null 2>&1' \
-        'IFS=$'"'"'\x1f'"'"'; for __kk_p_x in $__kk_p_n; do [[ $__kk_p_b == *" $__kk_p_x "* || ( -z ${!__kk_p_x+x} && -z ${!__kk_p_x@a} ) ]] || printf "%s\n" "$__kk_p_x"; done > "$__kk_p_o"' \
-        > "$__kk_imw_t.m1" 2>/dev/null || return 0
+        'kk._uses "$__kk_p_c" "$@" >/dev/null 2>&1; __kk_p_r=$?' \
+        '{ for __kk_p_x in "${__KK_UNIT_ORDER[@]:__kk_p_k}"; do __kk_p_x=${__kk_p_x#*"$__KK_SEP"}; printf "u %s=%s\n" "$__kk_p_x" "${__KK_UNITS[$__kk_p_x]-}"; done' \
+        '  IFS=$'"'"'\x1f'"'"'; for __kk_p_x in $__kk_p_n; do [[ $__kk_p_b == *" $__kk_p_x "* || ( -z ${!__kk_p_x+x} && -z ${!__kk_p_x@a} ) ]] || printf "v %s\n" "$__kk_p_x"; done' \
+        '  printf "end %s\n" "$__kk_p_r"; } > "$__kk_p_o"' \
+        > "$__kk_imw_t.m1" 2>/dev/null || { __kk_imw_why="cannot write the probe of the variables $__kk_ima_j"; return 1; }
     printf -v __kk_ima_n '%s\x1f' "${__kk_ima_m[@]}"
-    command env "${__kk_ima_e[@]}" -u BASH_ENV -u ENV "$BASH" "$__kk_imw_t.m1" "${__KK_UNITS[kbool]}" "${__KK_PROJECT-}" \
-        "$__kk_im_caller" "$__kk_imw_t.m1o" "${__kk_ima_n%$'\x1f'}" "${__kk_im_args[@]}" </dev/null >/dev/null 2>&1
-    { read -r -N 65536 __kk_ima_o < "$__kk_imw_t.m1o"; } 2>/dev/null || :
-    __kk_ima_o=${__kk_ima_o%%$'\n'*}
+    # the calling file as this shell resolved it: a relative spelling against
+    # the PWD it was loaded from (U43) when the script has cd'd since; an
+    # interactive prompt (a NAME is looked up in $PWD first, which a
+    # non-interactive probe does only beside a calling file): a file name in $PWD
+    __kk_ima_cl=$__kk_im_caller
+    case $__kk_ima_cl in
+        ''|main|environment) if [[ $- == *i* ]]; then __kk_ima_cl=$PWD/.kbool-prompt; fi ;;
+        /*|[A-Za-z]:*) ;;
+        *) if [[ -n ${__KK_FILE_PWD[$__kk_ima_cl]+x} && ${__KK_FILE_PWD[$__kk_ima_cl]} != "$PWD" ]]; then
+               __kk_ima_cl=${__KK_FILE_PWD[$__kk_ima_cl]}/$__kk_ima_cl
+           fi ;;
+    esac
+    command env "${__kk_ima_e[@]}" -u BASH_ENV -u ENV "${__kk_ima_s[@]}" KBOOL_IMAGE=off "$BASH" "$__kk_imw_t.m1" \
+        "${__KK_UNITS[kbool]}" "${__KK_PROJECT-}" "$__kk_ima_cl" "$__kk_imw_t.m1o" "${__kk_ima_n%$'\x1f'}" "$PWD" \
+        "${__kk_im_args[@]}" </dev/null >/dev/null 2>&1
+    { mapfile -t __kk_ima_l < "$__kk_imw_t.m1o"; } 2>/dev/null || __kk_ima_l=()
+    for __kk_ima_x in "${__kk_ima_l[@]}"; do
+        case $__kk_ima_x in
+            "u "*) __kk_ima_g+=("$__kk_ima_x") ;;
+            "v "*) [[ -n $__kk_ima_o ]] || __kk_ima_o=${__kk_ima_x#v } ;;
+            "end "*) __kk_ima_end=${__kk_ima_x#end } ;;
+        esac
+    done
+    for __kk_ima_u in "${__kk_imk_units[@]}"; do __kk_ima_w+=("u $__kk_ima_u=${__KK_UNITS[$__kk_ima_u]-}"); done
+    __kk_ima_x=""
+    if [[ -z $__kk_ima_end ]]; then
+        __kk_ima_x="it gave no result"
+    elif [[ $__kk_ima_end != 0 ]]; then
+        __kk_ima_x="its load failed (rc $__kk_ima_end)"
+    elif [[ "${__kk_ima_g[*]}" != "${__kk_ima_w[*]}" ]]; then
+        __kk_ima_x="it loaded other units"
+    fi
+    if [[ -n $__kk_ima_x ]]; then
+        __kk_imw_why="the fresh-process probe of the variables $__kk_ima_j cannot do this load: $__kk_ima_x (the image could lack a variable the load sets)"
+        return 1
+    fi
     if [[ -n $__kk_ima_o ]]; then
         __kk_imw_why="the variable $__kk_ima_o existed before the load, and the load sets it when it does not (a preset or a caller's variable would hide the unit's own value from the image)"
         return 1

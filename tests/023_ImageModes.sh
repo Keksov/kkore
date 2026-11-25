@@ -422,16 +422,20 @@ if (( ! WIN )); then
     # stat first — a fixture made under umask 002 has 664 files, CI
     # 45513026553; one stat source writes and checks, as on a real machine)
     uf_run "$R"'; kk.image --rebuild ia 2>/dev/null'
+    # (the real stat's path is keyed, N3: its image is another file than the
+    # stand-in's IMG2 — CI 45527025418)
+    uf_run "$R"'; kk.image --path ia'
+    IMGR=$UF_OUT
     uf_run "$R"'; kk.image ia 2>&1'
-    [[ $UF_OUT == "kbool: image: loaded from $IMG2" ]]
+    [[ $UF_OUT == "kbool: image: loaded from $IMGR" ]]
     uf_check "umask 002, the folder made 775 (POSIX, real modes): stat mode works (a hit)" $?
     chmod 777 "$FX/u2/img"
     uf_run "$R; $W"
-    [[ $UF_OUT == "kbool: WARNING: image $IMG2 is not trusted ($FX/u2/img is world-writable without the sticky bit (mode 777)); loading normally"$'\n'"rc=0"$'\n'"rc=0" ]]
+    [[ $UF_OUT == "kbool: WARNING: image $IMGR is not trusted ($FX/u2/img is world-writable without the sticky bit (mode 777)); loading normally"$'\n'"rc=0"$'\n'"rc=0" ]]
     uf_check "umask 002, a 777 folder (POSIX, real modes): ONE WARNING for two refusals, plain loads" $?
     chmod 1777 "$FX/u2/img"
     uf_run "$R"'; kk.image ia 2>&1'
-    [[ $UF_OUT == "kbool: image: loaded from $IMG2" ]]
+    [[ $UF_OUT == "kbool: image: loaded from $IMGR" ]]
     uf_check "umask 002, a 1777 folder (POSIX, real modes): accepted (a hit)" $?
     chmod 700 "$FX/u2/img"
     # every write path under umask 002 makes the image (and a .ref) 600:

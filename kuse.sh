@@ -180,10 +180,12 @@
 # sets, when it is absent, a variable that existed before the load (an
 # environment preset of a unit's internal `_` default, a caller's variable
 # hiding a unit global — the image would lack it): candidates are the
-# caller's variables and exported `_` names (not bash's, the environment's,
+# caller's variables and exported names (not bash's, the environment's,
 # kbool's); those that occur as a word in the unit files (comments cut) are
-# probed by ONE fresh bash that loads the request without them (a miss
-# costs one more load then, only then); starts a background
+# probed by ONE fresh bash that loads the request without them, with this
+# shell's settings (KBOOL_*, exported or not), in its $PWD (a miss costs
+# one more load then, only then); a probe that cannot do the same load (no
+# result, another rc, other units) is a refusal too; starts a background
 # job or a coprocess; leaves a file descriptor open or closes one (kklass's
 # pair excepted); a stamped file has a future mtime (or, stat, ctime); a
 # function holds a CR byte this parser drops that kklass's kk._fn_text_cr

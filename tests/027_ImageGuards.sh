@@ -71,6 +71,35 @@ if [[ ${ZR_WHAT-} == ro ]]; then readonly -f zr.f; fi
 if [[ ${ZR_WHAT-} == en ]]; then enable -n test; fi
 if [[ ${ZR_WHAT-} == co ]]; then complete -W x zr_cmd; fi
 EOF
+# zm: a public self-default (an exported preset is a candidate too)
+if_unit "$FX" zm <<'EOF'
+: "${MYAPP_X:=0}"
+zm.v() { echo "x=${MYAPP_X-unset}"; }
+EOF
+# zf: a load that needs a caller's variable; zu: one whose units depend on it
+# (the probe, without it, cannot do the same load: fail-closed)
+if_unit "$FX" zf <<'EOF'
+if [[ -z ${ZF_NEED-} ]]; then return 3; fi
+ZF_V=1
+EOF
+if_unit "$FX" zu <<'EOF'
+if [[ -n ${ZU_DEP-} ]]; then kk.uses ib || return; fi
+ZU_V=1
+EOF
+# zk (the critic's xu.cfg repro): a unit outside the search folders, reached
+# only through an unexported KBOOL_CONFIG's unitpath
+mkdir -p "$FX/xu/zk"
+cat > "$FX/xu/zk/zk.sh" <<'EOF'
+[[ ${__KK_UNITS[@]@a} == A* ]] || source "$KBOOL_HOME/kbool.sh" || return
+kk.unit zk || return $__kk_unit_rc
+zk._init() {
+    declare -g ZK_G=fromfn
+}
+zk._init
+zk.v() { echo "g=${ZK_G-unset}"; }
+EOF
+printf 'unitpath = %s\n' "$FX/xu/*" > "$FX/xu.cfg"
+touch -t 202001010000 "$FX/xu/zk/zk.sh" "$FX/xu.cfg"
 touch -t 202001010000 "$FX"/kcl/*/*.sh
 
 # ---------------------------------------------------------------------------
@@ -132,7 +161,7 @@ uf_run "$H"'; kk.image --forget zz 2>/dev/null; main() { kk.image zz 2>/dev/null
 uf_run "$H"'; main() { kk.image zz 2>/dev/null; echo "rc=$? ${__KK_UNIT_PID[zz]-image} $(zz.n)"; }; main'
 [[ $UF_OUT == "rc=0 image n=2 two=2 s=unit" ]]
 uf_check "a script with a main() function (no clash): written and hit below top level" $?
-for c in 'f() { local ZQ_G=mine; kk.image zq 2>"$FX/e.txt"; }; f' 'export __ZQ_D=1; kk.image zq 2>"$FX/e.txt"' 'ZQ_C=preset; kk.image zq 2>"$FX/e.txt"'; do
+for c in 'f() { local ZQ_G=mine; kk.image zq 2>"$FX/e.txt"; }; f' 'export __ZQ_D=1; kk.image zq 2>"$FX/e.txt"' 'ZQ_C=preset; kk.image zq 2>"$FX/e.txt"' 'export ZQ_C=guarded; kk.image zq 2>"$FX/e.txt"'; do
     uf_run "$H"'; kk.image --forget zq 2>/dev/null; '"$c"'; grep -o "the variable [A-Z_]* existed before the load, and the load sets it when it does not" "$FX/e.txt"'
     n=${c#*local }; n=${n#export }; n=${n%%=*}
     [[ $UF_OUT == "the variable $n existed before the load, and the load sets it when it does not" ]]
@@ -145,6 +174,45 @@ uf_check "zq without those presets: written, then a hit with all three set" $?
 uf_run "$H"'; value=1 rc=2 y=3 i=4; kk.image --forget zz 2>/dev/null; kk.image zz 2>&1 | grep -c "^kbool: image: wrote "'
 [[ $UF_OUT == 1 ]]
 uf_check "ordinary caller globals (value rc y i) that the units do not set: no false refusal" $?
+# an exported public preset is a candidate too (critic M1 round 3)
+uf_run "$H"'; export MYAPP_X=1; kk.image zm 2>"$FX/e.txt"; grep -o "the variable [A-Z_]* existed before the load, and the load sets it when it does not" "$FX/e.txt"; zm.v'
+A=$UF_OUT
+uf_run "$H"'; kk.image --forget zm 2>/dev/null; kk.image zm 2>/dev/null'
+uf_run "$H"'; kk.image zm 2>/dev/null; echo "${__KK_UNIT_PID[zm]-image} $(zm.v)"'
+[[ $A == "the variable MYAPP_X existed before the load, and the load sets it when it does not"$'\n'"x=1" && $UF_OUT == "image x=0" ]]
+uf_check "an exported MYAPP_X and a unit with : \"\${MYAPP_X:=0}\": no image; without it written, a hit gives x=0" $?
+# the probe does this shell's load: an unexported KBOOL_CONFIG (the critic's
+# xu.cfg repro, unitpath to zk), a script that cd's after loading kbool
+X='KBOOL_CONFIG="$FX/xu.cfg"; '"$H"
+uf_run "$X"'; f() { local ZK_G=mine; kk.image zk 2>"$FX/e.txt"; }; f; grep -o "the variable [A-Z_]* existed before the load, and the load sets it when it does not" "$FX/e.txt"'
+A=$UF_OUT
+# a script run as ./app.sh that cd's after loading kbool: its relative
+# spelling is resolved against the PWD it was loaded from (U43), in the probe too
+cat > "$FX/xu/app.sh" <<'EOF2'
+source "$FX/kbool.sh" || exit 9
+VERBOSE_KKLASS=debug
+cd "$FX/cwd" || exit 9
+f() { local ZK_G=mine; kk.image zk/zk.sh 2>"$FX/e.txt"; }
+f
+grep -o "the variable [A-Z_]* existed before the load, and the load sets it when it does not" "$FX/e.txt"
+EOF2
+uf_run 'cd "$FX/xu" && "$BASH" ./app.sh'
+B=$UF_OUT
+uf_run "$X"'; kk.image --forget zk 2>/dev/null; kk.image zk 2>/dev/null'
+uf_run "$X"'; kk.image zk 2>/dev/null; echo "${__KK_UNIT_PID[zk]-image} $(zk.v)"'
+[[ $A == "the variable ZK_G existed before the load, and the load sets it when it does not" && $A == "$B" && $UF_OUT == "image g=fromfn" ]]
+uf_check "an unexported KBOOL_CONFIG / a relative script spelling after a cd: the probe does the same load (ZK_G found, no image); without the local written and hit" $?
+# fail-closed: a probe that cannot do the same load refuses, with a hold
+cp "$FX/xu.cfg" "$FX/xu2.cfg"
+uf_run 'KBOOL_CONFIG="$FX/xu2.cfg"; '"$H"'; kk.image --forget zk 2>/dev/null; rm -f "$FX/xu2.cfg"; f() { local ZK_G=mine; kk.image zk 2>"$FX/e.txt"; echo "rc=$? $(zk.v)"; }; f; grep "no image written\|held for" "$FX/e.txt"; ls "$FX/img" | grep -c "^zk-.*\.hold$"'
+[[ $UF_OUT == "rc=0 g=mine"$'\n'"kbool: image: no image written: the fresh-process probe of the variables ZK_G cannot do this load: it gave no result"*$'\n'"kbool: image: held for an hour: "*$'\n'"1" ]]
+uf_check "a probe that cannot start (its KBOOL_CONFIG gone): no image, a hold; the load itself done" $?
+uf_run "$H"'; ZF_NEED=1; kk.image zf 2>"$FX/e.txt"; echo "rc=$? $ZF_V"; grep -o "cannot do this load: its load failed (rc [0-9]*)" "$FX/e.txt"; ls "$FX/img" | grep -c "^zf-.*\.hold$"'
+[[ $UF_OUT == "rc=0 1"$'\n'"cannot do this load: its load failed (rc "*")"$'\n'"1" ]]
+uf_check "a load that needs a caller's variable (ZF_NEED): the probe's load fails — no image, a hold" $?
+uf_run "$H"'; ZU_DEP=1; kk.image zu 2>"$FX/e.txt"; echo "rc=$? $ZU_V $IB_V"; grep -o "cannot do this load: it loaded other units" "$FX/e.txt"; ls "$FX/img" | grep -c "^zu-.*\.hold$"'
+[[ $UF_OUT == "rc=0 1 7"$'\n'"cannot do this load: it loaded other units"$'\n'"1" ]]
+uf_check "units that depend on a caller's variable (ZU_DEP): the probe loads other units — no image, a hold" $?
 
 # ---------------------------------------------------------------------------
 kt_test_section "027: M2 / M3 / L1 / L2 / L5 / L8"
