@@ -431,7 +431,8 @@ if (( ! WIN )); then
     uf_check "umask 002, the folder made 775 (POSIX, real modes): stat mode works (a hit)" $?
     chmod 777 "$FX/u2/img"
     uf_run "$R; $W"
-    [[ $UF_OUT == "kbool: WARNING: image $IMGR is not trusted ($FX/u2/img is world-writable without the sticky bit (mode 777)); loading normally"$'\n'"rc=0"$'\n'"rc=0" ]]
+    # (GNU %a prints 777, BSD %Mp%Lp 0777 — CI 45536835600)
+    [[ $UF_OUT == "kbool: WARNING: image $IMGR is not trusted ($FX/u2/img is world-writable without the sticky bit (mode "?(0)"777)); loading normally"$'\n'"rc=0"$'\n'"rc=0" ]]
     uf_check "umask 002, a 777 folder (POSIX, real modes): ONE WARNING for two refusals, plain loads" $?
     chmod 1777 "$FX/u2/img"
     uf_run "$R"'; kk.image ia 2>&1'
