@@ -162,7 +162,7 @@ if_age() {
     IFS= read -r -d '' z < "$1" || :
     z=${z/$'\n'"#P"$'\x1f'"$t"$'\x1f'/$'\n'"#P"$'\x1f'"$n"$'\x1f'}
     z=${z/"__kk_img_wtime=$t"$'\n'/"__kk_img_wtime=$n"$'\n'}
-    printf '%s' "$z" > "$1.age" && mv -f "$1.age" "$1"
+    ( umask 077; printf '%s' "$z" > "$1.age" ) && mv -f "$1.age" "$1"    # (077: as the writer makes it — under a caller umask 002 it would be 664, refused in stat mode)
 }
 
 # if_pfield IMG N -> IF_F: field N of IMG's plain header line (0 wtime, 1 size,

@@ -41,6 +41,19 @@ if_unit "$FX" zd <<'EOF'
 : "${__ZD_P:=0}"
 zd.p() { echo "p=${__ZD_P-unset}"; }
 EOF
+# zq (the critic's): globals set in an init function run at load and in an
+# indented file-scope `if` — no column-0 assignment at all
+if_unit "$FX" zq <<'EOF'
+zq._init() {
+    declare -g ZQ_G=fromfn
+    : "${__ZQ_D:=5}"
+}
+zq._init
+if [[ -z ${ZQ_C+x} ]]; then
+    ZQ_C=guarded
+fi
+zq.v() { echo "g=${ZQ_G-unset} d=${__ZQ_D-unset} c=${ZQ_C-unset}"; }
+EOF
 if_unit "$FX" zo <<'EOF'
 if kk.uses --optional zdep; then ZO_MODE=dep; else ZO_MODE=fallback; fi
 EOF
@@ -81,6 +94,22 @@ uf_check "a caller's local scalar (with a value): a plain load — the unit's de
 uf_run "$H; $D"'; f() { local -n ZZ_M=zz_tgt; kk.image zz 2>"$FX/e.txt"; echo "rc=$?"; }; f; grep -c "exists in this shell already" "$FX/e.txt"'
 [[ $UF_OUT == "rc=0"$'\n'"1" ]]
 uf_check "a caller's nameref of that name: a plain load" $?
+uf_run "$H"'; set -e; f() { local -a ZZ_M=(); kk.image zz 2>"$FX/e.txt"; echo "rc=$?"; }; f; echo "survived $(zz.n)"; grep -c "exists in this shell already" "$FX/e.txt"'
+[[ $UF_OUT == "rc=0"$'\n'"survived n=2 two=2 s=unit"$'\n'"1" ]]
+uf_check "set -e; f() { local -a ZZ_M=(); kk.image zz; }: a plain load, the script goes on (\${!X@a} sees an array assigned ())" $?
+# (a global indexed ZZ_M: the unit's own `declare -gA ZZ_M=(…)` fails in a
+# normal load too — under set -e that ends the script either way)
+uf_run "$H"'; declare -a ZZ_M=(); kk.image zz 2>"$FX/e.txt"; echo "rc=$? $(declare -p ZZ_M)"; grep -c "exists in this shell already" "$FX/e.txt"'
+A=$UF_OUT
+uf_run "$H"'; declare -a ZZ_M=(); KBOOL_IMAGE=off kk.image zz 2>/dev/null; echo "rc=$? $(declare -p ZZ_M)"; echo 1'
+[[ $A == "$UF_OUT" && $A == *$'\n'1 ]]
+uf_check "a global declare -a ZZ_M=() before kk.image: a plain load (the clash named) — the same as a normal load (${A%%$'\n'*})" $?
+# the documented limit: a bare `local NAME` of an image ARRAY name is not
+# seen (one declare -p per array name: ~25 ms per start for fv.dlg) — the
+# element lines then end the script, as the kuse.sh header and the plan say
+uf_run "$H"'; f() { local ZZ_M; kk.image zz 2>/dev/null; echo "rc=$?"; }; f; echo "survived"'
+[[ $UF_RC != 0 && $UF_OUT != *survived* ]]
+uf_check "known limit (documented): f() { local ZZ_M; kk.image zz; } with ZZ_M an image array name ends the script" $?
 uf_run "$H"'; kk.image zp 2>/dev/null'
 uf_run "$H"'; f() { local -a ZP_M; kk.image zp 2>/dev/null; echo "rc=$?"; }; f; declare -p ZP_M'
 [[ $UF_OUT == "rc=0"$'\n'"declare -A ZP_M=([a]=\"1\" [b]=\"2\" )" || $UF_OUT == "rc=0"$'\n'"declare -A ZP_M=([b]=\"2\" [a]=\"1\" )" ]]
@@ -90,19 +119,32 @@ uf_check "plain keys (the critic's zp): the global table is complete — the ima
 kt_test_section "027: M1 — a pre-existing variable a unit file assigns"
 
 uf_run "$H; $D"'; export __ZD_P=1; kk.image zd 2>"$FX/e.txt"; grep "no image written\|held for" "$FX/e.txt"; zd.p'
-[[ $UF_OUT == "kbool: image: no image written: the variable __ZD_P existed before the load and a unit file assigns it"*$'\n'"kbool: image: held for an hour: "*$'\n'"p=1" ]]
+[[ $UF_OUT == "kbool: image: no image written: the variable __ZD_P existed before the load, and the load sets it when it does not"*$'\n'"kbool: image: held for an hour: "*$'\n'"p=1" ]]
 uf_check "(a) an environment preset of an internal self-default (: \"\${__ZD_P:=0}\"): no image, a hold — a later start without the preset would lack it" $?
 uf_run "$H"'; kk.image --forget zd 2>/dev/null; kk.image zd 2>/dev/null; zd.p'
 uf_run "$H"'; kk.image zd 2>/dev/null; zd.p; echo "${__KK_UNIT_PID[zd]-image}"'
 [[ $UF_OUT == "p=0"$'\n'"image" ]]
 uf_check "(without the preset the image is written and hits, p=0)" $?
 uf_run "$H; $D"'; kk.image --forget zz 2>/dev/null; f() { local ZZ_S=mine; kk.image zz 2>"$FX/e.txt"; }; f; grep "no image written" "$FX/e.txt"'
-[[ $UF_OUT == "kbool: image: no image written: the variable ZZ_S existed before the load and a unit file assigns it"* ]]
+[[ $UF_OUT == "kbool: image: no image written: the variable ZZ_S existed before the load, and the load sets it when it does not"* ]]
 uf_check "(b) a caller's local hiding a unit global (f() { local ZZ_S=mine; kk.image zz; }): no image" $?
 uf_run "$H"'; kk.image --forget zz 2>/dev/null; main() { kk.image zz 2>/dev/null; echo "rc=$?"; }; main'
 uf_run "$H"'; main() { kk.image zz 2>/dev/null; echo "rc=$? ${__KK_UNIT_PID[zz]-image} $(zz.n)"; }; main'
 [[ $UF_OUT == "rc=0 image n=2 two=2 s=unit" ]]
 uf_check "a script with a main() function (no clash): written and hit below top level" $?
+for c in 'f() { local ZQ_G=mine; kk.image zq 2>"$FX/e.txt"; }; f' 'export __ZQ_D=1; kk.image zq 2>"$FX/e.txt"' 'ZQ_C=preset; kk.image zq 2>"$FX/e.txt"'; do
+    uf_run "$H"'; kk.image --forget zq 2>/dev/null; '"$c"'; grep -o "the variable [A-Z_]* existed before the load, and the load sets it when it does not" "$FX/e.txt"'
+    n=${c#*local }; n=${n#export }; n=${n%%=*}
+    [[ $UF_OUT == "the variable $n existed before the load, and the load sets it when it does not" ]]
+    uf_check "zq: $n set before the load (${c%%;*}) and set by the load in an init function / an indented if: no image (the probe)" $?
+done
+uf_run "$H"'; kk.image --forget zq 2>/dev/null; kk.image zq 2>/dev/null'
+uf_run "$H"'; kk.image zq 2>/dev/null; echo "${__KK_UNIT_PID[zq]-image} $(zq.v)"'
+[[ $UF_OUT == "image g=fromfn d=5 c=guarded" ]]
+uf_check "zq without those presets: written, then a hit with all three set" $?
+uf_run "$H"'; value=1 rc=2 y=3 i=4; kk.image --forget zz 2>/dev/null; kk.image zz 2>&1 | grep -c "^kbool: image: wrote "'
+[[ $UF_OUT == 1 ]]
+uf_check "ordinary caller globals (value rc y i) that the units do not set: no false refusal" $?
 
 # ---------------------------------------------------------------------------
 kt_test_section "027: M2 / M3 / L1 / L2 / L5 / L8"
@@ -127,6 +169,16 @@ uf_run "$H; $D"'; kk.image zo 2>"$FX/e.txt"; echo "$ZO_MODE"; grep -o "not found
 rm -rf "$FX/kcl/zdep"
 [[ $A == fallback && $UF_OUT == "dep"$'\n'"not found when the image was made, is found now" ]]
 uf_check "M3: a failed optional dependency is a negative edge: installed later, the image is stale and the new load takes it" $?
+# N1: a header-less zdep.sh in a search folder is no unit (kk.uses does not
+# find it by name): the negative edge still holds — a hit, not stale forever
+uf_run "$H"'; kk.image --forget zo 2>/dev/null; kk.image zo 2>/dev/null'
+mkdir -p "$FX/kcl/zdep"; printf '%s\n' 'ZDEP_PLAIN=1' > "$FX/kcl/zdep/zdep.sh"; touch -t 202001010000 "$FX/kcl/zdep/zdep.sh"
+uf_run "$H"'; kk.image zo 2>&1 | { head -1; cat >/dev/null; }; kk.image zo 2>/dev/null; echo "$ZO_MODE"'
+A=$UF_OUT
+uf_run "$H"'; kk.image zo 2>&1; echo "$ZO_MODE ${ZDEP_PLAIN-none}"'
+rm -rf "$FX/kcl/zdep"
+[[ $UF_OUT == "kbool: image: loaded from $FX/img/zo-"*".img"$'\n'"fallback none" && $A != *stale* ]]
+uf_check "N1: a header-less NAME.sh in a search folder: the negative edge holds (kk._unit_find resolves nothing) — a hit" $?
 
 uf_run "$H; $D"'; f() { local IFS=:; kk.image ib 2>&1 | grep -c "file descriptor"; }; kk.image --forget ib 2>/dev/null; f'
 [[ $UF_OUT == 0 ]]

@@ -141,21 +141,21 @@ kk._image_prep() {
     # kk.uses, without sourcing the writer and its mkdir on every start (L5)
     if (( __kk_im_mk )) && ! kk._image_canmk; then return 1; fi
     # a mode without its tool runs as `dates` (§7.6): `stat` / `cksum` not on
-    # PATH (type -P: no fork), or a `stat` that takes neither -c nor -f — the
+    # PATH (kk._image_toolpath: no fork; the path is keyed), or a `stat` that takes neither -c nor -f — the
     # writer found that out and left FOLDER/stat.hold, valid for an hour
     case $__kk_im_mode in
         stat)
-            if ! type -P stat >/dev/null 2>&1; then
+            if ! kk._image_toolpath stat; then
                 __kk_im_from="stat is not on PATH"
             elif kk._image_hfile "$__kk_im_dir/stat.hold"; then
                 __kk_im_from="stat.hold ($__kk_im_hr)"
             fi ;;
         hash)
-            if ! type -P cksum >/dev/null 2>&1; then __kk_im_from="cksum is not on PATH"; fi ;;
+            if ! kk._image_toolpath cksum; then __kk_im_from="cksum is not on PATH"; fi ;;
     esac
     if [[ -n $__kk_im_from ]]; then
         kk._image_dbg "KBOOL_IMAGE_CHECK=$__kk_im_mode: $__kk_im_from; using dates"
-        __kk_im_mode=dates
+        __kk_im_mode=dates __kk_im_tool=""
     fi
     # the permission bits are checked in `stat` mode, but not on the Windows
     # runtimes, whose modes are no guard (§8.2)
@@ -229,7 +229,7 @@ kk._image_key() {
     kk._unit_lexnorm "$KBOOL_HOME"
     printf -v __kk_im_key '%s\n' "kbool image v1" "home=$__kk_n" "bash=$BASH" "version=$BASH_VERSION" \
         "ostype=$OSTYPE" "machtype=$MACHTYPE" "euid=$__kk_im_euid" "family=$__kk_im_fam" \
-        "parse=$__kk_ik_po compat:${BASH_COMPAT-}" "check=$__kk_im_mode" "kbool=${KBOOL_VERSION-}" \
+        "parse=$__kk_ik_po compat:${BASH_COMPAT-}" "check=$__kk_im_mode" "tool=$__kk_im_tool" "kbool=${KBOOL_VERSION-}" \
         "request=$__kk_im_req" "files=$__kk_im_files" "prior=" \
         "unitpath=${__KK_CFG[unitpath]-}" "defines=${__KK_CFG[defines]-}" "debug=${__KK_CFG[debug]-}" \
         "ckkdir=${__KK_CFG[ckkdir]-}" "project=${__KK_PROJECT-}" "verbose=${VERBOSE_KKLASS+=}${VERBOSE_KKLASS-}"
@@ -316,6 +316,24 @@ kk._image_levels() {
         fi
     done
     return 0
+}
+
+# kk._image_toolpath NAME — __kk_im_tool = the file `command NAME` runs (the
+# hash table's entry, else the first executable NAME on PATH), fork-free; rc
+# 1 when there is none. Keyed (critic N3): another stat / cksum — brew's
+# GNU stat in one shell, the BSD one in another — is another image, not a
+# "stat failed" stale image and a hold.
+kk._image_toolpath() {
+    local __kk_it_p=${PATH-} __kk_it_d
+    __kk_im_tool=""
+    if [[ -n ${BASH_CMDS[$1]+x} ]]; then __kk_im_tool=${BASH_CMDS[$1]}; return 0; fi
+    while [[ -n $__kk_it_p ]]; do
+        __kk_it_d=${__kk_it_p%%:*}
+        if [[ $__kk_it_p == *:* ]]; then __kk_it_p=${__kk_it_p#*:}; else __kk_it_p=""; fi
+        [[ -n $__kk_it_d ]] || __kk_it_d=.
+        if [[ -f $__kk_it_d/$1 && -x $__kk_it_d/$1 ]]; then __kk_im_tool=$__kk_it_d/$1; return 0; fi
+    done
+    return 1
 }
 
 # kk._image_canmk — rc 0 when the missing levels of __kk_im_lv can be made:
@@ -418,8 +436,8 @@ kk._image_pline() {
 # kk._image_stamp FLAVOUR FILE... -> __kk_im_so: the stamps of `stat` mode,
 # `SIZE MTIME CTIME INODE UID MODE` per FILE — FLAVOUR gnu9: stat -c '%s
 # %.9Y %.9Z %i %u %a' (nanosecond times, GNU coreutils >= 8.32); gnu: the same
-# with whole seconds; bsd9: stat -f '%z %Fm %Fc %i %u %Lp'; bsd: '%z %m %c %i
-# %u %Lp' — or of `hash` mode (FLAVOUR hash: cksum), one line per FILE — ONE
+# with whole seconds; bsd9: stat -f '%z %Fm %Fc %i %u %Mp%Lp'; bsd: '%z %m %c %i
+# %u %Mp%Lp' (%Mp: the suid / sgid / sticky digit, which %Lp leaves out) — or of `hash` mode (FLAVOUR hash: cksum), one line per FILE — ONE
 # fork (the command substitution runs the command itself). rc 1 when the
 # command fails, the line count is not the file count, or (stat) a line is
 # not six fields with the times in the flavour's form (a stat that ignores a
@@ -431,8 +449,8 @@ kk._image_stamp() {
     case $__kk_is_f in
         gnu9) __kk_im_so=$(command stat -c '%s %.9Y %.9Z %i %u %a' -- "$@" 2>/dev/null) || return 1 ;;
         gnu)  __kk_im_so=$(command stat -c '%s %Y %Z %i %u %a' -- "$@" 2>/dev/null) || return 1 ;;
-        bsd9) __kk_im_so=$(command stat -f '%z %Fm %Fc %i %u %Lp' -- "$@" 2>/dev/null) || return 1 ;;
-        bsd)  __kk_im_so=$(command stat -f '%z %m %c %i %u %Lp' -- "$@" 2>/dev/null) || return 1 ;;
+        bsd9) __kk_im_so=$(command stat -f '%z %Fm %Fc %i %u %Mp%Lp' -- "$@" 2>/dev/null) || return 1 ;;
+        bsd)  __kk_im_so=$(command stat -f '%z %m %c %i %u %Mp%Lp' -- "$@" 2>/dev/null) || return 1 ;;
         hash) __kk_im_so=$(command cksum -- "$@" 2>/dev/null) || return 1 ;;
         *)    return 1 ;;
     esac
@@ -656,9 +674,11 @@ kk._image__check() {
         if [[ -z $__kk_hc_f ]]; then
             if (( ! __KK_UNIT_IDX_OK )); then kk._unit_index_build; fi
             # (the index: a headered candidate, or any candidate file NAME.sh
-            # in the search path — then the lookup may find it now)
+            # in the search path — then the lookup decides as kk.uses would:
+            # a header-less NAME.sh resolves to nothing, critic N1)
             if [[ ( -z $__kk_hc_d || ! -e $__kk_hc_d/$__kk_hc_n.sh ) && -z ${__KK_UNIT_IDX[$__kk_hc_n]-} \
                   && -z ${__KK_UNIT_CAND[$__kk_hc_n]-} ]]; then continue; fi
+            if ! kk._unit_find "$__kk_hc_n" "$__kk_hc_d"; then continue; fi
             __kk_im_why="stale: the dependency '$__kk_hc_n' (used from ${__kk_hc_d:-a prompt}), not found when the image was made, is found now"
             __kk_im_stale=1; return 1
         fi
@@ -726,11 +746,21 @@ kk._image__check() {
             # index entries, on the mtime: files dated back (touch -t, an
             # archive) are no racy case; an mtime-keeping change inside that
             # one second is not seen (documented)
-            if [[ $__kk_im_mode == stat && ( ${__kk_im_pl[6]} == gnu || ${__kk_im_pl[6]} == bsd ) ]]; then
+            # (a nanosecond flavour whose fractions are ALL zero — FAT/exFAT,
+            # HFS+, ext3, some NFS/SMB mounts keep whole seconds — is whole
+            # seconds too: critic N2)
+            __kk_hc_k=0
+            if [[ ${__kk_im_pl[6]} == gnu || ${__kk_im_pl[6]} == bsd ]]; then __kk_hc_k=1
+            elif [[ ${__kk_im_pl[6]} == *9 && $__kk_hc_st == *.* ]]; then
+                __kk_hc_x=${__kk_hc_st//.000000000 / }
+                [[ $__kk_hc_x == *.* ]] || __kk_hc_k=1
+            fi
+            if [[ $__kk_im_mode == stat && $__kk_hc_k == 1 ]]; then
                 kk._image_lines "$__kk_hc_st" __kk_hc_a
                 for (( __kk_hc_i = 0; __kk_hc_i < ${#__kk_hc_a[@]}; __kk_hc_i++ )); do
                     __kk_hc_x=${__kk_hc_a[__kk_hc_i]#* }
                     __kk_hc_x=${__kk_hc_x%% *}
+                    __kk_hc_x=${__kk_hc_x%%.*}            # (a zero fraction: the whole seconds)
                     if [[ -z $__kk_hc_x || $__kk_hc_x == *[!0-9]* || -z $__kk_img_stime || $__kk_img_stime == *[!0-9]* ]] \
                        || (( 10#$__kk_hc_x >= 10#$__kk_img_stime )); then
                         __kk_im_why="${__kk_img_files[__kk_hc_i]-a stamped file} changed in the second its stamp was taken (racy)"
@@ -743,14 +773,17 @@ kk._image__check() {
     # (critic H1): readonly (§8.3), a caller's local of any kind, a global
     # array of the other kind, a nameref, a preset — the image would write
     # into it (or die on `X[key]` of an indexed one inside the source), and
-    # the undo would unset it. A plain kk.uses decides instead. (Fork- and
-    # file-free: a caller's `local X` with neither a value nor an attribute
-    # is not seen — only `declare -p` would tell, one call per name.)
-    # (`${!N@a}` with N=NAME[@]: the attributes of an array even when it has
-    # no element yet, `local -a X`)
+    # the undo would unset it. A plain kk.uses decides instead. `${!X@a}`
+    # sees `local -a X=()` / a global `declare -a X=()`, `${!N@a}` with
+    # N=NAME[@] an array with no element yet (`local -a X`), `+x` a set
+    # scalar, -R a nameref. Limit (documented): a bare `local NAME` (neither
+    # a value nor an attribute) is not seen — only one `declare -p` per name
+    # would tell, measured ~25 ms per start for fv.dlg's 1335 array names —
+    # and when NAME is an image ARRAY name, its element lines can then end
+    # the caller's script (an arithmetic error inside the source).
     for __kk_hc_x in "${__kk_img_vars[@]}"; do
         __kk_hc_n="$__kk_hc_x[@]"
-        if [[ -n ${!__kk_hc_n@a} || -n ${!__kk_hc_x+x} || -R $__kk_hc_x ]]; then
+        if [[ -n ${!__kk_hc_x@a} || -n ${!__kk_hc_n@a} || -n ${!__kk_hc_x+x} || -R $__kk_hc_x ]]; then
             __kk_im_why="'$__kk_hc_x' exists in this shell already (${!__kk_hc_n@a}): the image would write into it"; return 2
         fi
     done

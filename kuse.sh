@@ -109,10 +109,11 @@
 #                           BSD, dates on Git-bash / MSYS2 / Cygwin; another
 #                           value -> the default and a debug line. The
 #                           EFFECTIVE mode is keyed (switching modes uses another
-#                           image).
+#                           image), and so is the stat / cksum the start runs
+#                           (its path: another tool, another image).
 #                           stat:  ONE `stat` per start (GNU -c '%s %.9Y %.9Z
 #                                  %i %u %a', else -c with whole seconds, else
-#                                  BSD -f '%z %Fm %Fc %i %u %Lp', else -f with
+#                                  BSD -f '%z %Fm %Fc %i %u %Mp%Lp', else -f with
 #                                  whole seconds: the flavour probed by the
 #                                  writer, GNU first as kcl TPath does, and kept
 #                                  in the image) — size, mtime, ctime, inode,
@@ -125,7 +126,9 @@
 #                                  an image exists, nothing written otherwise.
 #                                  The Windows runtimes make modes up: no bits
 #                                  checked, no mode stamped there. With whole
-#                                  seconds only, a file whose mtime is the
+#                                  seconds only (or nanosecond times whose
+#                                  fractions are all zero: a whole-second
+#                                  filesystem), a file whose mtime is the
 #                                  second the stamps were taken in is "racy": a
 #                                  miss (git's rule); an mtime-keeping change
 #                                  inside that second is not seen. A stamped
@@ -155,13 +158,15 @@
 # file that fails a check gets ONE WARNING per process), and — on a start — a
 # variable the image creates that exists in the caller's view already (a
 # readonly one, a caller's local or nameref, a global of another kind, a
-# preset: the image would write into it; a caller's `local X` with neither a
-# value nor an attribute is not seen). VERBOSE_KKLASS=debug prints a `kbool:
+# preset: the image would write into it). Limit: a bare `local NAME` (neither
+# a value nor an attribute) in a calling function is not seen, and when NAME
+# is an image ARRAY name the start may end the script (its element lines
+# fail inside the source). VERBOSE_KKLASS=debug prints a `kbool:
 # image: …` line for every reason. An image holds this call's units: their
 # functions, the variables they created (readonly flags last), their kklass
 # tables and their kkore registration (last, with the earlier value of every
 # kkore slot it changes), its dependency edges (also a dependency NOT found,
-# a failed `kk.uses --optional`: found later, the image is stale). Never
+# a failed `kk.uses --optional`: found later — a unit file with the header —, the image is stale). Never
 # held: kbool.sh's state, settings hook variables (the hooks run again),
 # exports, __kk_ft, the name index and caller-keyed tables, __KK_UNIT_PID (pid
 # state; absent after an image start, which nothing reads for a loaded unit),
@@ -172,11 +177,13 @@
 # (exported, traced, readonly), disabled builtins (enable -n), completions,
 # the hash table (unless its settings hooks make the change: they run on every
 # start), an existing function or (non-kkore) variable outside the hooks;
-# assigns, in a unit file's text, a variable that existed before the load
-# (`NAME=`, `NAME+=`, `NAME[…]=`, `${NAME:=…}`, declare / local / readonly /
-# typeset … NAME; bash's and the environment's usual names aside): an
-# environment preset of a unit's internal default, or a caller's local
-# hiding a unit global, would leave it out of the image; starts a background
+# sets, when it is absent, a variable that existed before the load (an
+# environment preset of a unit's internal `_` default, a caller's variable
+# hiding a unit global — the image would lack it): candidates are the
+# caller's variables and exported `_` names (not bash's, the environment's,
+# kbool's); those that occur as a word in the unit files (comments cut) are
+# probed by ONE fresh bash that loads the request without them (a miss
+# costs one more load then, only then); starts a background
 # job or a coprocess; leaves a file descriptor open or closes one (kklass's
 # pair excepted); a stamped file has a future mtime (or, stat, ctime); a
 # function holds a CR byte this parser drops that kklass's kk._fn_text_cr
@@ -1456,7 +1463,7 @@ kk.image() {
           __kk_im_mk=0 __kk_im_bad="" __kk_im_lv="" __kk_im_ml="" __kk_im_img="" __kk_im_ref="" __kk_im_key="" \
           __kk_im_name="" __kk_im_h="" __kk_im_cdir="" __kk_im_req="" __kk_im_rn="" __kk_im_rh="" __kk_im_files="" \
           __kk_im_fam=- __kk_im_act="" __kk_im_from="" __kk_im_wt="" __kk_im_stale=0 __kk_im_modes=0 \
-          __kk_im_so="" __kk_im_hr="" __kk_im_rc=0 __kk_im_o=0
+          __kk_im_so="" __kk_im_hr="" __kk_im_rc=0 __kk_im_o=0 __kk_im_tool=""
     local -a __kk_im_reqf=() __kk_im_reqk=() __kk_im_args=()
     while [[ ${1-} == --* ]]; do
         case $1 in
