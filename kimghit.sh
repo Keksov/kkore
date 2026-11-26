@@ -33,6 +33,12 @@ kk._image_run() {
             kk._image_dbg "--forget: ${__kk_im_why:-kkore/kimage.sh cannot be loaded}; nothing deleted"
             return 0 ;;
     esac
+    # the background writer's own run (kimgbg.sh, IMG-D10): no start, its key
+    # checked against the caller's, then kimage.sh's writer
+    if [[ $__kk_im_bg == w ]] && declare -F kk._imgbg_write >/dev/null; then
+        kk._imgbg_write
+        return
+    fi
     if (( __kk_im_rc == 0 )); then
         if [[ $__kk_im_act == rebuild ]]; then
             __kk_im_why="--rebuild"
@@ -67,6 +73,15 @@ kk._image_run() {
         # (an existing folder this user cannot write in: no writer — L5)
         if (( __kk_im_rc != 2 )) && [[ -d $__kk_im_dir && ! -w $__kk_im_dir ]]; then
             __kk_im_why+="; the image folder is not writable"
+            __kk_im_rc=2
+        fi
+        if (( __kk_im_rc != 2 )) && [[ $__kk_im_bg == 1 ]]; then
+            # --background (IMG-D10): the plain load now, the writer detached
+            if kk._image_bglib; then
+                kk._imgbg_fore
+                return
+            fi
+            __kk_im_why+="; kkore/kimgbg.sh cannot be loaded"
             __kk_im_rc=2
         fi
         if (( __kk_im_rc != 2 )); then

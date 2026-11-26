@@ -82,6 +82,28 @@
 #                           whose optional units all loaded is a plain load's
 #                           state); a failed optional unit is kk.uses' quiet rc,
 #                           no image, a hold.
+#   kk.image --background [--optional] UNIT...  as kk.image, but a miss
+#                           does not wait for the writer (owner decision
+#                           IMG-D10; bin/fvdlg's start): kk.uses' load at
+#                           once (its rc, its units), then a detached
+#                           background process — a fresh $BASH running
+#                           kkore/kimgbg.sh — writes the image exactly as a
+#                           foreground miss would and ENDS BY ITSELF (a few
+#                           seconds; a hard limit of 120 s, then killed with
+#                           its children). The caller's $!, job table,
+#                           traps and options are untouched; the writer
+#                           holds none of its descriptors (0-2 /dev/null:
+#                           `x=$(cmd)` returns at once). One writer per
+#                           image (its marker NAME.bg next to the image: a
+#                           second start meanwhile is a plain load, no
+#                           wait); a writer killed or stopped: no damaged
+#                           image, a hold of 10 minutes; a writer that
+#                           refuses: the foreground writer's hold. No
+#                           background writer with units loaded before
+#                           (a prior set: a hit still, else a plain
+#                           kk.uses). KBOOL_IMAGE=off: no image, no writer.
+#                           Details, seams and limits: kkore/kimgbg.sh.
+#                           rc 2 with --rebuild / --forget / --path.
 #   kk.image --rebuild [--optional] UNIT...  a normal load, then the image
 #                           written even when the old one is valid; clears a
 #                           hold. rc = the load's.
@@ -1535,9 +1557,10 @@ kk._uses() {
 # __kk_img_* in kk._image_hit, which sources the image; every name on the
 # stack while kimage.sh dumps the state starts with __kk_im. Chained images
 # (I2b): the prior set in kimghit.sh kk._image_prior, the deltas and the
-# fresh-process simulation in kimage.sh.
+# fresh-process simulation in kimage.sh. The background writer of --background
+# (IMG-D10, I5): kkore/kimgbg.sh, sourced on such a miss (kk._image_bglib).
 
-# kk.image [--rebuild | --forget | --path] [--optional] [UNIT...] — see the header.
+# kk.image [--rebuild | --forget | --path | --background] [--optional] [UNIT...] — see the header.
 kk.image() {
     if [[ ${__KK_LOADED[@]@a} != A ]]; then
         [[ -z ${KBOOL_HOME-} || ! -f ${KBOOL_HOME-}/kbool.sh ]] || source "$KBOOL_HOME/kbool.sh" || return
@@ -1547,13 +1570,21 @@ kk.image() {
           __kk_im_mk=0 __kk_im_bad="" __kk_im_lv="" __kk_im_ml="" __kk_im_img="" __kk_im_ref="" __kk_im_key="" \
           __kk_im_name="" __kk_im_h="" __kk_im_cdir="" __kk_im_req="" __kk_im_rn="" __kk_im_rh="" __kk_im_files="" \
           __kk_im_fam=- __kk_im_act="" __kk_im_from="" __kk_im_wt="" __kk_im_stale=0 __kk_im_modes=0 \
-          __kk_im_so="" __kk_im_hr="" __kk_im_rc=0 __kk_im_o=0 __kk_im_tool="" __kk_im_pn="" __kk_im_prior="" __kk_im_ph=""
+          __kk_im_so="" __kk_im_hr="" __kk_im_rc=0 __kk_im_o=0 __kk_im_tool="" __kk_im_pn="" __kk_im_prior="" __kk_im_ph="" __kk_im_bg=""
+    # (the background writer, kimgbg.sh kk._imgbg_run, calls kk.image as the
+    # caller's file would: the caller from its dynamic local, and the writer's
+    # path instead of a start; a kk.image nested in a unit's load sees its own)
+    if [[ -n ${__kk_imbg_w-} ]]; then __kk_im_caller=$__kk_imbg_caller __kk_im_bg=w; fi
+    local __kk_imbg_w=""
     local -a __kk_im_reqf=() __kk_im_reqk=() __kk_im_args=() __kk_im_pf=()
     while [[ ${1-} == --* ]]; do
         case $1 in
             --rebuild|--forget|--path)
-                if [[ -n $__kk_im_act ]]; then kk._unit_err "kk.image $1: only one of --rebuild, --forget, --path"; return 2; fi
+                if [[ -n $__kk_im_act || $__kk_im_bg == 1 ]]; then kk._unit_err "kk.image $1: only one of --rebuild, --forget, --path, --background"; return 2; fi
                 __kk_im_act=${1#--} ;;
+            --background)
+                if [[ -n $__kk_im_act ]]; then kk._unit_err "kk.image $1: only one of --rebuild, --forget, --path, --background"; return 2; fi
+                [[ $__kk_im_bg == w ]] || __kk_im_bg=1 ;;
             --optional) __kk_im_o=1 ;;
             *)  if [[ -n $__kk_im_act ]]; then kk._unit_err "kk.image --$__kk_im_act: unknown option '$1'"; return 2; fi
                 break ;;
@@ -1589,7 +1620,8 @@ kk._image_dbg() {
 }
 
 # kk._image_hitlib — source kkore/kimghit.sh (next to this file) unless
-# loaded; kk._image_lib — kimghit.sh, then kkore/kimage.sh. rc 1 when one
+# loaded; kk._image_lib — kimghit.sh, then kkore/kimage.sh; kk._image_bglib —
+# kimghit.sh, then kkore/kimgbg.sh (a --background miss). rc 1 when one
 # fails. (A function defined by the file tells it is loaded; sourcing either
 # again redefines its functions.)
 kk._image_hitlib() {
@@ -1599,6 +1631,15 @@ kk._image_hitlib() {
     [[ -f $__kk_il_f ]] || return 1
     source "$__kk_il_f" || return 1
     declare -F kk._image_run >/dev/null
+}
+kk._image_bglib() {
+    kk._image_hitlib || return 1
+    if declare -F kk._imgbg_fore >/dev/null; then return 0; fi
+    local __kk_il_f=${__KK_UNITS[kuse]-}
+    __kk_il_f=${__kk_il_f%[/\\]*}/kimgbg.sh
+    [[ -f $__kk_il_f ]] || return 1
+    source "$__kk_il_f" || return 1
+    declare -F kk._imgbg_fore >/dev/null
 }
 kk._image_lib() {
     kk._image_hitlib || return 1

@@ -1016,6 +1016,7 @@ kk._img__child() {
     local - __kk_imc_m=$1 __kk_imc_n __kk_imc_x __kk_imc_cl=$__kk_im_caller __kk_imc_ux="" __kk_imc_o="" __kk_imc_k="" __kk_n=""
     local -a __kk_imc_e=() __kk_imc_s=()
     set -f
+    # (the same list as kimgbg.sh kk._imgbg_spawn's, the background writer's: keep both)
     for __kk_imc_n in "${!KBOOL_@}" VERBOSE_KKLASS __KK_CFG_ETC HOME USERPROFILE ProgramData LANG LC_ALL LC_CTYPE BASH_COMPAT; do
         [[ $__kk_imc_n != KBOOL_VERSION ]] || continue
         [[ $__kk_imc_m == chain || $__kk_imc_n != KBOOL_IMAGE ]] || continue
@@ -2884,6 +2885,18 @@ kk._img_prune() {
                 __kk_imp_d+=(0) ;;
             *.hold)
                 kk._image_hfile "$__kk_imp_x" || __kk_ima_f+=("$__kk_imp_x") ;;
+            *.bg)
+                # a background writer's marker (kimgbg.sh): removed when older
+                # than the 10-minute hold a stale one leads to (no writer runs
+                # that long: its limit is 120 s), or not a number
+                __kk_imp_t=""
+                { IFS=' ' read -r __kk_imp_t __kk_imp_r < "$__kk_imp_x"; } 2>/dev/null || :
+                if [[ -z $__kk_imp_t || $__kk_imp_t == *[!0-9]* || ${#__kk_imp_t} -gt 12 ]] \
+                   || (( __kk_imp_now - 10#$__kk_imp_t >= 600 || __kk_imp_now < 10#$__kk_imp_t - 600 )); then
+                    __kk_ima_f+=("$__kk_imp_x")
+                elif (( __kk_imp_now - 10#$__kk_imp_t >= 140 )); then
+                    __kk_imp_refs+=("$__kk_imp_x")     # (no writer runs for it: goes with its image below)
+                fi ;;
             *.ref|*.fnc|*.vck)
                 __kk_imp_refs+=("$__kk_imp_x") ;;
         esac
@@ -2914,6 +2927,11 @@ kk._img_prune() {
         [[ ! -f $__kk_imp_x ]] || __kk_ima_f+=("$__kk_imp_x")
     done
     for __kk_imp_x in "${__kk_imp_refs[@]}"; do
+        if [[ $__kk_imp_x == *.bg ]]; then                            # a stale NAME.bg: goes with its image
+            __kk_imp_n=${__kk_imp_x%.bg}.img
+            [[ -z ${__kk_imp_gone[$__kk_imp_n]-} ]] || __kk_ima_f+=("$__kk_imp_x")
+            continue
+        fi
         if [[ $__kk_imp_x == *.fnc || $__kk_imp_x == *.vck ]]; then   # NAME.fnc, NAME.vck: kept with its image
             __kk_imp_n=${__kk_imp_x%.???}.img
             [[ -f $__kk_imp_n && -z ${__kk_imp_gone[$__kk_imp_n]-} ]] || __kk_ima_f+=("$__kk_imp_x")
@@ -3003,14 +3021,16 @@ kk._img_forget() {
         __kk_imy_n=${__kk_imy_x##*/}
         [[ $__kk_imy_n == "$__kk_im_rn"-* ]] || continue
         __kk_imy_p=${__kk_imy_n#"$__kk_im_rn"-}
-        # (the pattern of 8 hex digits, then .img / .NONCE.ref / .hold / .tmp.).
+        # (the pattern of 8 hex digits, then .img / .NONCE.ref / .hold / .fnc /
+        # .vck / .bg — a background writer's marker, kimgbg.sh — / .tmp.).
         # A request name cut at 64 characters may be another request's: then
         # an image goes only when its plain line's request hash is this
         # request's, and a .ref / .hold only next to such an image (critic L8)
         if [[ $__kk_imy_p == $__kk_imy_h.img ]]; then
             if (( ${#__kk_im_rn} >= 64 )) && ! kk._img__forgetmine "$__kk_imy_x"; then continue; fi
             __kk_imy_f+=("$__kk_imy_x")
-        elif [[ $__kk_imy_p == $__kk_imy_h.*ref || $__kk_imy_p == $__kk_imy_h.hold || $__kk_imy_p == $__kk_imy_h.fnc || $__kk_imy_p == $__kk_imy_h.vck ]]; then
+        elif [[ $__kk_imy_p == $__kk_imy_h.*ref || $__kk_imy_p == $__kk_imy_h.hold || $__kk_imy_p == $__kk_imy_h.fnc || $__kk_imy_p == $__kk_imy_h.vck \
+                || $__kk_imy_p == $__kk_imy_h.bg ]]; then
             if (( ${#__kk_im_rn} >= 64 )) && ! kk._img__forgetmine "$__kk_im_dir/$__kk_im_rn-${__kk_imy_p:0:8}.img"; then continue; fi
             __kk_imy_f+=("$__kk_imy_x")
         elif [[ $__kk_imy_p == $__kk_imy_h.tmp.* ]]; then

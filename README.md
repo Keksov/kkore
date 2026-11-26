@@ -229,11 +229,47 @@ kk.image fv.dlg || exit          # was: kk.uses fv.dlg
 | call | does | rc |
 |---|---|---|
 | `kk.image [--optional] UNIT...` | a start through a valid image; else a normal load, then the image is written for the next start (unless a hold says not to, below) | `kk.uses`' rc; a hit is 0 |
+| `kk.image --background [--optional] UNIT...` | as `kk.image`, but a miss does not wait for the writer: a normal load at once, and a **short-lived background process** writes the image (below) | `kk.uses`' rc; a hit is 0 |
 | `kk.image --rebuild [--optional] UNIT...` | a normal load, then a new image even when the old one is valid; clears a hold | the load's rc |
 | `kk.image --forget UNIT...` | removes this request's images, holds and helper files (every key) | 0; 2 without a unit |
 | `kk.image --path [UNIT...]` | prints the image path this start would use (without units: the folder) | 0 valid; 1 none, stale, refused or held; 2 a usage error |
 
 `--optional` works as in `kk.uses`; a failed optional unit means no image (and a hold).
+`--background` cannot be combined with `--rebuild`, `--forget` or `--path` (rc 2).
+
+**The background writer (`--background`).** The first start writes the image for 4–5 s
+(Cygwin ~8 s) after its load — too long for a command that should answer at once, such as
+`bin/fvdlg`. With `--background` a miss loads the units normally and returns; the image is
+written by a separate bash of the same runtime, started detached, which **ends by itself**
+when the image is written (a few seconds; a hard limit of 120 s, then it is killed). The
+next start hits. What to know:
+
+* **It is a process of its own.** After a first call (and the first call after kbool or a
+  unit changed) a `bash …/kkore/kimgbg.sh` runs for a few seconds after your script has
+  returned. Its stdin, stdout and stderr are `/dev/null` and it holds none of your
+  descriptors: `x=$(cmd)` returns at once, nothing waits for it. Your shell's `$!` and job
+  table are untouched (`wait` never waits for it). Where the tools exist it runs under
+  `setsid` (no terminal), GNU `timeout` (its own process group: at the limit it is killed
+  with its children) and `nice`. **To turn it off: `KBOOL_IMAGE=off`** (no image, no
+  writer; every call a normal load).
+* **One writer per image.** While a writer runs, its marker `NAME.bg` sits next to the
+  image; a second start meanwhile loads normally and starts no second writer.
+* **Failures.** A writer that refuses holds for an hour, as above. A writer killed (a
+  logout, the limit, a container that ended) never leaves a damaged image (images are
+  renamed into place); the next start sees the stale marker and holds for 10 minutes
+  instead of starting a new writer.
+* **It writes what a normal `kk.image` would.** It gets your settings (every `KBOOL_*`,
+  `VERBOSE_KKLASS`, the locale, `HOME`, the umask, the current folder, the calling file)
+  and writes only when its own key equals your start's.
+* **Not used** (a hit is still used, else a plain `kk.uses`): when units were loaded
+  before `kk.image` (chained images are written in the foreground only).
+* **Limits.** Git-bash has no `setsid`: the writer stays in the console / terminal session
+  (closing the window may kill it: then the 10-minute hold). Stock macOS has neither
+  `setsid` nor `timeout`: the writer is its own watchdog and at the limit only it is
+  killed, not its children. The foreground writer refuses a load that would set a variable
+  your script set before without exporting it; the background writer cannot see such
+  variables and may write an image; your starts then load normally (the start's check
+  finds the variable), which is safe but never a hit.
 
 **Settings** (read on every call):
 
@@ -330,8 +366,10 @@ there, and the file checks cannot tell on these runtimes. On a shared machine se
 through an image takes about a fifth of a plain load: 0.13–0.15 s instead of about 0.6 s.
 The checks take about 25–30 ms of that. With a `kk.uses` before it, an image start adds
 about as much as an unchained one. The first start, which loads normally and writes the
-image, takes 4–5 s. The times move with the machine; the ratios stay. To measure on your
-machine, run the `image` suite of `tools/bench`.
+image, takes 4–5 s; with `--background` it takes what a plain load takes (the spawn costs
+about 2 ms on Linux and 25–45 ms on the Windows runtimes), and the write happens in the
+background. The times move with the machine; the ratios stay. To measure on your
+machine, run the `image` and `fvdlg` suites of `tools/bench`.
 
 ### Variables
 
