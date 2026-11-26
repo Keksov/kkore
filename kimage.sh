@@ -276,32 +276,62 @@ kk._img__dump() {
         umask
     } > "$__kk_imd_f"
 }
-# kk._img__inv FILE ARRAY — append to ARRAY the names of the variables that
-# are declared but were never assigned (`declare -gA X`, `declare -gi N`,
-# `declare -g S` with no value): `compgen -v` lists only variables with a
-# value. One full `declare -p` into FILE (FILE overwritten), its records
-# without a value: a line `declare -FLAGS NAME` with no `=` (bash quotes a
-# newline in a value as $'…': a record is one line). Bash's own (COMP_WORDBREAKS,
-# OLDPWD, the dynamic variables before their first read: __KK_IMG_BASHV) are
-# left out. Fork-free; ~70 ms after fv.dlg's load on the laptop (565 KB).
+# kk._img__inv FILE ARRAY [FLAGS] — append to ARRAY the names of the
+# variables that are declared but were never assigned (`declare -gA X`,
+# `declare -gi N`, `declare -gn R`, `declare -g S` with no value): `compgen -v`
+# lists only variables with a value. One full `declare -p` into FILE (FILE
+# overwritten), its records without a value: a record `declare -FLAGS NAME`
+# with no `=`. With FLAGS (an associative array) also FLAGS[NAME] = the
+# record's attribute letters (`n`, `A`, `ai`, `r`…; empty for `--`): the only
+# place a value-less nameref shows its `n` — `[[ -R ]]` is false and
+# `${!X[@]@a}` empty for it (I3 fix 1, critic M2). Bash >= 5.2 quotes a newline
+# in a value as $'…' (a record is one line); bash 5.1 prints a scalar with
+# sh_double_quote — real newlines inside "…" — so there a scalar record whose
+# quotes are still open goes on over the next lines (`"` counted after `\\`
+# and `\"` are dropped), and a continuation line `declare -X NAME` of such a
+# value is never taken for a record (I3 fix 1, critic L1). Bash's own
+# (COMP_WORDBREAKS, OLDPWD, the dynamic variables before their first read:
+# __KK_IMG_BASHV) are left out. Fork-free; ~70 ms after fv.dlg's load on the
+# laptop (565 KB).
 # (Image I3: without it the writer left such variables out of an image and
 # the dump out of every compare — fv.views' `declare -gA __FV_VW_LIVE …`,
 # kklass's TX_lazy_inits / TX_computed_getters / TX_method_cache: after an
 # image start `__FV_VW_LIVE[$name]=1` made an indexed array and every view a
 # "live view".)
 kk._img__inv() {
-    local - LC_ALL=C IFS=$'\n' __kk_imv_z="" __kk_imv_l
+    local - LC_ALL=C IFS=$'\n' __kk_imv_z="" __kk_imv_l __kk_imv_f __kk_imv_q __kk_imv_open=0 __kk_imv_old=0
     local -a __kk_imv_a=()
     local -n __kk_imv_o=$2
+    if [[ -n ${3-} ]]; then local -n __kk_imv_fl=$3; else local -A __kk_imv_fl=(); fi
     set -f
+    if kk._img_oldbash; then __kk_imv_old=1; fi
     declare -p > "$1" 2>/dev/null || :
     read -r -N 268435456 __kk_imv_z < "$1" || :
     __kk_imv_a=($__kk_imv_z)
     for __kk_imv_l in "${__kk_imv_a[@]}"; do
-        [[ $__kk_imv_l == 'declare -'* && ${__kk_imv_l:0:512} != *=* ]] || continue
-        __kk_imv_l=${__kk_imv_l##* }
+        if (( __kk_imv_open )); then
+            # (bash 5.1: a line of an open "…" scalar value; odd quotes close it)
+            __kk_imv_q=${__kk_imv_l//\\\\/}; __kk_imv_q=${__kk_imv_q//\\\"/}; __kk_imv_q=${__kk_imv_q//[!\"]/}
+            (( ${#__kk_imv_q} % 2 == 0 )) || __kk_imv_open=0
+            continue
+        fi
+        [[ $__kk_imv_l == 'declare -'* ]] || continue
+        if [[ ${__kk_imv_l:0:512} == *=* ]]; then
+            # (bash 5.1: a scalar `declare -FLAGS NAME="…` whose quotes stay open)
+            __kk_imv_f=${__kk_imv_l#declare -}
+            if (( __kk_imv_old )) && [[ ${__kk_imv_f%% *} != *[aA]* && ${__kk_imv_f#* } == [A-Za-z_]*'="'* ]]; then
+                __kk_imv_q=${__kk_imv_l#*=\"}
+                __kk_imv_q=${__kk_imv_q//\\\\/}; __kk_imv_q=${__kk_imv_q//\\\"/}; __kk_imv_q=${__kk_imv_q//[!\"]/}
+                (( ${#__kk_imv_q} % 2 == 1 )) || __kk_imv_open=1
+            fi
+            continue
+        fi
+        __kk_imv_f=${__kk_imv_l#declare -}
+        __kk_imv_l=${__kk_imv_f##* }
+        __kk_imv_f=${__kk_imv_f%% *}
         [[ $__kk_imv_l == [A-Za-z_]* && $__kk_imv_l != *[!A-Za-z0-9_]* && $__KK_IMG_BASHV != *" $__kk_imv_l "* ]] || continue
         __kk_imv_o+=("$__kk_imv_l")
+        __kk_imv_fl[$__kk_imv_l]=${__kk_imv_f//-/}
     done
 }
 
@@ -1057,7 +1087,7 @@ kk._img__child() {
 kk._img_kid() {
     local __kk_im9_m=$1 __kk_im9_o=$2 __kk_im9_cl=$3 __kk_im9_cf=$4 __kk_im9_ff=$5 __kk_im9_um=$6 __kk_im9_wp=$7 \
           __kk_im9_used=$8 __kk_im9_img=$9 __kk_im9_dir=${10} __kk_im9_nm=${11} __kk_im9_np=${12} __kk_im9_x __kk_im9_r=0 \
-          __kk_im9_k __kk_im9_b=" " __kk_im9_out="" __kk_im9_t=$EPOCHREALTIME __kk_im9_tt="" __kk_n
+          __kk_im9_k __kk_im9_y __kk_im9_b=" " __kk_im9_out="" __kk_im9_t=$EPOCHREALTIME __kk_im9_tt="" __kk_n
     local -a __kk_im9_P=() __kk_im9_c=() __kk_im9_mt=() __kk_im9_fl=() __kk_im9_v=() __kk_im9_ev=() __kk_im9_pf=() __kk_im9_pa=()
     local -A __kk_im9_pre=() __kk_im9_aft=() __kk_im9_wd=()
     shift 12
@@ -1162,7 +1192,8 @@ kk._img_kid() {
     if (( ${#__kk_im9_mt[@]} )); then
         unset -v "${__kk_im9_mt[@]}" 2>/dev/null
         for __kk_im9_x in "${__kk_im9_mt[@]}"; do
-            [[ -z ${!__kk_im9_x+x} && -z ${!__kk_im9_x@a} ]] || __kk_im9_b+="$__kk_im9_x "
+            __kk_im9_y="$__kk_im9_x[@]"     # (${!X@a} is empty for a variable declared without a value: I3 fix 1 M1)
+            [[ -z ${!__kk_im9_x+x} && -z ${!__kk_im9_x@a} && -z ${!__kk_im9_y@a} ]] || __kk_im9_b+="$__kk_im9_x "
         done
         __kk_im9_k=${#__KK_UNIT_ORDER[@]}
         kk._uses "$__kk_im9_cl" "$@" >/dev/null 2>&1
@@ -1173,7 +1204,8 @@ kk._img_kid() {
             __kk_im9_out+="u $__kk_im9_x=${__KK_UNITS[$__kk_im9_x]-}"$'\n'
         done
         for __kk_im9_x in "${__kk_im9_mt[@]}"; do
-            [[ $__kk_im9_b == *" $__kk_im9_x "* || ( -z ${!__kk_im9_x+x} && -z ${!__kk_im9_x@a} ) ]] || __kk_im9_out+="v $__kk_im9_x"$'\n'
+            __kk_im9_y="$__kk_im9_x[@]"
+            [[ $__kk_im9_b == *" $__kk_im9_x "* || ( -z ${!__kk_im9_x+x} && -z ${!__kk_im9_x@a} && -z ${!__kk_im9_y@a} ) ]] || __kk_im9_out+="v $__kk_im9_x"$'\n'
         done
     fi
     __kk_im9_out+="t${__kk_im9_tt}"$'\n'"end $__kk_im9_r"$'\n'
@@ -2050,7 +2082,7 @@ kk._img__build() {
     local -a __kk_imk_a=() __kk_imk_ks=() __kk_imk_units=() __kk_imk_cls=() __kk_imk_nv=() __kk_imk_ro=() \
           __kk_imk_nf=() __kk_imk_base=() __kk_imk_reg=() __kk_imk_hooks=() __kk_imk_edges=() __kk_imk_files=() \
           __kk_imk_rf=() __kk_imk_dtxt=() __kk_imk_c1=()
-    local -A __kk_imk_nu=() __kk_imk_hv=() __kk_imk_post=() __kk_imk_seen=() __kk_imk_pu=() __kk_imk_inv=()
+    local -A __kk_imk_nu=() __kk_imk_hv=() __kk_imk_post=() __kk_imk_seen=() __kk_imk_pu=() __kk_imk_inv=() __kk_imk_invf=()
     # chained (§7.7): units were loaded before (the prior set P, kimghit.sh
     # kk._image_prior): the image holds this call's delta, deltas on the
     # pre-existing slots it changed included, checked by a fresh process
@@ -2114,7 +2146,7 @@ kk._img__build() {
     compgen -v > "$__kk_imw_t.n1"
     kk._img__split "$__kk_imw_t.n1" __kk_imk_a
     __kk_imk_y=${#__kk_imk_a[@]}
-    kk._img__inv "$__kk_imw_t.n1" __kk_imk_a
+    kk._img__inv "$__kk_imw_t.n1" __kk_imk_a __kk_imk_invf
     for __kk_imk_x in "${__kk_imk_a[@]:__kk_imk_y}"; do __kk_imk_inv[$__kk_imk_x]=1; done
     for __kk_imk_x in "${__kk_imk_a[@]}"; do
         [[ -z ${__kk_imw_pre[$__kk_imk_x]+x} && -z ${__kk_imk_hv[$__kk_imk_x]-} ]] || continue
@@ -2124,9 +2156,16 @@ kk._img__build() {
         # is listed by declare -p, never a unit's state: kkore reserves __kk_)
         [[ -n ${__kk_imk_inv[$__kk_imk_x]-} && $__kk_imk_x == __kk_* ]] && continue
         __kk_imk_y=${!__kk_imk_x@a}
-        if [[ -n ${__kk_imk_inv[$__kk_imk_x]-} ]]; then __kk_imk_y="$__kk_imk_x[@]"; __kk_imk_y=${!__kk_imk_y@a}; fi    # (${!X@a} is empty for a variable without a value)
+        if [[ -n ${__kk_imk_inv[$__kk_imk_x]-} ]]; then __kk_imk_y=${__kk_imk_invf[$__kk_imk_x]-}; fi    # (its record's flags: ${!X@a} is empty and -R false for a variable without a value)
         if [[ ! -R $__kk_imk_x && $__kk_imk_y == *x* ]]; then
             __kk_imw_why="the load exported $__kk_imk_x outside the settings hooks"; return 1
+        fi
+        # (pid state outside the hooks: an image would hand the writer's pid to
+        # every start — fv.views' owner pid held so made its subshell guard
+        # refuse every call after a start; I3 fix 1, critic M3)
+        if [[ ! -R $__kk_imk_x && $__kk_imk_y != *[aA]* && -n ${!__kk_imk_x+x} ]] \
+           && [[ ${!__kk_imk_x} == "$BASHPID" || ${!__kk_imk_x} == "$$" ]]; then
+            __kk_imw_why="the load stored this shell's pid in $__kk_imk_x outside the settings hooks (pid state: a hook VAR sets it on every start)"; return 1
         fi
         __kk_imk_nv+=("$__kk_imk_x")
         if [[ $__kk_imk_y == *r* ]]; then __kk_imk_ro+=("$__kk_imk_x"); fi
@@ -2594,7 +2633,7 @@ kk._img__text() {
                 (( __kk_imj_p == 0 )) || continue
             fi
             __kk_imj_at=${!__kk_imj_x@a}
-            if [[ -n ${__kk_imk_inv[$__kk_imj_x]-} ]]; then __kk_imj_at="$__kk_imj_x[@]"; __kk_imj_at=${!__kk_imj_at@a}; fi
+            if [[ -n ${__kk_imk_inv[$__kk_imj_x]-} ]]; then __kk_imj_at=${__kk_imk_invf[$__kk_imj_x]-}; fi
             __kk_imj_fl=${__kk_imj_at//[aAnrx]/}
             if [[ -n ${__kk_imk_inv[$__kk_imj_x]-} ]]; then
                 # declared, never assigned (kk._img__inv): declared again

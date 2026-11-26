@@ -54,6 +54,12 @@ if [[ -z ${ZQ_C+x} ]]; then
 fi
 zq.v() { echo "g=${ZQ_G-unset} d=${__ZQ_D-unset} c=${ZQ_C-unset}"; }
 EOF
+# zvl (I3 fix 1, critic M1): a global declared without a value — after a
+# start without it `ZVL_A[k]=1` would make an indexed array
+if_unit "$FX" zvl <<'EOF'
+declare -gA ZVL_A
+zvl.k() { ZVL_A[k]=1; echo "kind=${ZVL_A@a}"; }
+EOF
 if_unit "$FX" zo <<'EOF'
 if kk.uses --optional zdep; then ZO_MODE=dep; else ZO_MODE=fallback; fi
 EOF
@@ -171,6 +177,20 @@ uf_run "$H"'; kk.image --forget zq 2>/dev/null; kk.image zq 2>/dev/null'
 uf_run "$H"'; kk.image zq 2>/dev/null; echo "${__KK_UNIT_PID[zq]-image} $(zq.v)"'
 [[ $UF_OUT == "image g=fromfn d=5 c=guarded" ]]
 uf_check "zq without those presets: written, then a hit with all three set" $?
+# (critic M1, I3 fix 1) a caller's local named like a global the unit declares
+# WITHOUT a value (declare -gA ZVL_A): the probe's checks read ${!X@a}, empty for
+# such a variable — so the image was written without ZVL_A and a later start
+# made `ZVL_A[k]=1` an indexed array; now the probe reports it: no image
+for c in 'local -A ZVL_A' 'local -A ZVL_A=()'; do
+    uf_run "$H"'; kk.image --forget zvl 2>/dev/null; f() { '"$c"'; kk.image zvl 2>"$FX/e.txt"; }; f; grep -o "the variable [A-Z_]* existed before the load, and the load sets it when it does not" "$FX/e.txt"; zvl.k'
+    [[ $UF_OUT == "the variable ZVL_A existed before the load, and the load sets it when it does not"$'
+'"kind=A" ]]
+    uf_check "zvl: a caller's '$c' hiding the unit's value-less 'declare -gA ZVL_A': no image (the probe sees a variable without a value) [I3 fix 1 M1]" $?
+done
+uf_run "$H"'; kk.image --forget zvl 2>/dev/null; kk.image zvl 2>/dev/null'
+uf_run "$H"'; kk.image zvl 2>/dev/null; echo "${__KK_UNIT_PID[zvl]-image} $(zvl.k)"'
+[[ $UF_OUT == "image kind=A" ]]
+uf_check "zvl without the local: written, a hit keeps ZVL_A associative" $?
 uf_run "$H"'; value=1 rc=2 y=3 i=4; kk.image --forget zz 2>/dev/null; kk.image zz 2>&1 | grep -c "^kbool: image: wrote "'
 [[ $UF_OUT == 1 ]]
 uf_check "ordinary caller globals (value rc y i) that the units do not set: no false refusal" $?

@@ -24,7 +24,10 @@
 #   iro   a readonly constant IRO_C guarded per name
 #   iuv   variables declared without a value (an associative and an indexed
 #         array, an integer, a scalar: `declare -gA IUV_A` …) and iuv.f, which
-#         uses them (image I3: compgen -v does not list such variables)
+#         uses them (image I3: compgen -v does not list such variables); a
+#         value-less nameref IUV_R (its `n` only in the declare -p record) and
+#         a scalar IUV_F whose value holds a line `declare -a IUV_FAKE` (bash
+#         5.1 prints it on a line of its own; I3 fix 1, critic M2 / L1)
 #   irw   irw.f FILE: writes ab, then X over its first byte through `1<>`
 #         (image I3: bash 5.2 prints `1<> F` as `<> F`, fd 0 when read back)
 # Helpers in DIR: dump.sh FILE (kk._img_state FILE canon, in the child's
@@ -114,6 +117,8 @@ declare -gA IUV_A
 declare -ga IUV_X
 declare -gi IUV_N
 declare -g IUV_S
+declare -gn IUV_R
+declare -g IUV_F=$'x\ndeclare -a IUV_FAKE\ny'
 iuv.f() { IUV_A[key]=v; IUV_N+=7; IUV_N+=1; echo "A=${IUV_A[key]-} N=$IUV_N kind=${IUV_A@a}"; }
 EOF
     if_unit "$fx" irw <<'EOF'

@@ -191,6 +191,7 @@ EOF
             [[ -z $c || $c == *[=\[\(\$]* ]] || words[$c]=1
             continue
         fi
+        [[ $c == [A-Za-z_]*=* && $c != *" "* ]] && continue    # (a prefix assignment: LC_ALL=C of stat / cksum, traced on its own line; I3 fix 1)
         forks=$(( forks + 1 )); cmd=${c%% -*}
     done < "$FX/fk.trace"
     for c in "${!words[@]}"; do [[ $(type -t -- "$c" 2>/dev/null) != file ]] || ext+="$c "; done
@@ -490,5 +491,42 @@ uf_run "$P; export IFAKE_MODE=\"$FX/u2/img=1777\""'; umask 002; kk.image ia 2>&1
 [[ $UF_OUT == "kbool: image: loaded from $IMG2" ]]
 uf_check "umask 002, a 1777 folder (emulated): accepted (a hit)" $?
 UF_ENV=(KBOOL_IMAGE_DIR="$FX/img" KBOOL_IMAGE_CHECK=stat)
+
+# ---------------------------------------------------------------------------
+kt_test_section "023: the stamps under a decimal-comma locale (I3 fix round 1, CI 45760665404)"
+
+# GNU stat prints %.9Y with LC_NUMERIC's decimal point: under ru_RU.UTF-8 (an
+# installed locale on the glibc CI rows) `1764134503,123456789` — the stamp
+# check took it for a failed stat ("stale" and an hour's hold) whenever the
+# writer and the start ran under different locales. kk._image_stamp runs stat
+# / cksum under LC_ALL=C. fc/stat: the host stat, its points printed as commas
+# unless its environment's locale is C / POSIX / unset (no installed locale
+# needed); written under LANG=C, started under LANG=ru_RU.UTF-8: a hit
+UF_FX="$_KT_TMPDIR/fx_comma"
+if_build "$UF_FX" || { kt_test_start "fixture comma"; kt_test_fail "if_build failed"; exit 1; }
+FX=$UF_FX
+UF_ENV=(KBOOL_IMAGE_DIR="$FX/img" KBOOL_IMAGE_CHECK=stat)
+mkdir -p "$FX/fc"
+cat > "$FX/fc/stat" <<EOF
+#!$REAL_BASH
+o=\$("$REAL_STAT" "\$@") || exit \$?
+case \${LC_ALL:-\${LC_NUMERIC:-\${LANG:-}}} in
+    ''|C|POSIX) printf '%s\n' "\$o" ;;
+    *) printf '%s\n' "\${o//./,}" ;;
+esac
+EOF
+chmod +x "$FX/fc/stat"
+if [[ $REAL_FL != *9 ]]; then
+    kt_test_start "a decimal-comma locale between the writer and the start: a hit"
+    kt_test_pass "N/A: the host stat has no nanosecond times ($REAL_FL)"
+else
+    C='source "$FX/kbool.sh" || exit 9; VERBOSE_KKLASS=debug; unset LC_ALL LC_NUMERIC LC_CTYPE; PATH="$FX/fc:$PATH"'
+    uf_run "$C"'; export LANG=ru_RU.UTF-8; t=$(stat -c %.9Y -- "$FX" 2>/dev/null || stat -f %Fm -- "$FX"); echo "$t"'
+    T=$UF_OUT
+    uf_run "$C"'; export LANG=C; kk.image ia 2>/dev/null; kk.image ia 2>/dev/null'     # (a racy rewrite at most)
+    uf_run "$C"'; export LANG=ru_RU.UTF-8; kk.image ia 2>&1 | { head -1; cat >/dev/null; }'
+    [[ $T == *,* && $UF_OUT == "kbool: image: loaded from $FX/img/ia-"*".img" ]]
+    uf_check "a decimal-comma locale (LANG=ru_RU.UTF-8, a stat printing '$T') at the start of an image written under LANG=C: stat runs under LC_ALL=C — a hit, not 'stale' [I3 fix 1 L1]" $?
+fi
 
 kt_test_log "023_ImageModes.sh completed"

@@ -4,7 +4,8 @@
 # leaves a file descriptor open or closes one (kklass's pair excepted —
 # 027/kcl), starts a background job or a coprocess, changes the hash table
 # outside its hooks (a hook that does is fine: the hooks run on every start),
-# an alias, a function attribute, a shell option; IMG-D9 (`&> "$f"`: written
+# an alias, a function attribute, a shell option, stores the shell's pid in a
+# variable outside the hooks (I3 fix 1); IMG-D9 (`&> "$f"`: written
 # on bash >= 5.2; refused on bash < 5.2 — the branch tested by overriding
 # kk._img_oldbash; a real 5.1 runs it on the CI alpine 5.1 row); the CR
 # matrix (a function with $'\r' in a string, in a pattern, a raw CR in a
@@ -60,6 +61,10 @@ EOF
 if_unit "$FX" iopt <<'EOF'
 shopt -s nullglob
 EOF
+# ipid (I3 fix 1, critic M3): pid state stored at load outside any hook
+if_unit "$FX" ipid <<'EOF'
+declare -g IPID_P=$BASHPID
+EOF
 if_unit "$FX" id9 <<'EOF'
 id9.f() { echo "to $1" &> "$1"; }
 EOF
@@ -84,6 +89,7 @@ refused ihash "the simulated image start differs: the load changed the hash tabl
 refused ial "the load changed the shell state: alias"
 refused ift "the load changed the shell state: fattr"
 refused iopt "the load changed the shell state: options"
+refused ipid "the load stored this shell's pid in IPID_P outside the settings hooks (pid state: a hook VAR sets it on every start)"
 uf_run "$H"'; kk.image ihashk 2>&1 | grep -c "wrote"'
 A=$UF_OUT
 uf_run "$H"'; kk.image ihashk 2>&1; echo "${BASH_CMDS[kbool_hook_cmd]-none}"'

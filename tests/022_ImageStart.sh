@@ -158,21 +158,26 @@ cat > "$FX/uv.sh" <<'EOF'
 source "$FX/kbool.sh" || exit 9
 if [[ $1 == plain ]]; then KBOOL_IMAGE=off kk.image iuv; else kk.image iuv; fi
 r=$?
-echo "$1 rc=$r ${__KK_UNIT_PID[iuv]-image} $(declare -p IUV_A IUV_X IUV_N IUV_S | tr '\n' '|')"
+echo "$1 rc=$r ${__KK_UNIT_PID[iuv]-image} $(declare -p IUV_A IUV_X IUV_N IUV_S IUV_R | tr '\n' '|') fake=${IUV_FAKE@a}${IUV_FAKE-none}"
 kk._image_lib || exit 9     # (kimghit.sh + kimage.sh: the same functions in both dumps)
 unset r
 kk._img_state "$2" canon
+# (the dump half, I3 fix 1 critic M4: the canon dump lists them, by their records)
+IFS= read -r -d '' d < "$2" || :
+[[ $d == *$'\n''declare -A IUV_A'$'\n'* && $d == *$'\n''declare -i IUV_N'$'\n'* && $d == *$'\n''declare -n IUV_R'$'\n'* && $d != *'declare -a IUV_FAKE'$'\n'* ]] && echo "dump=listed" || echo "dump=missing"
+unset d
 iuv.f
 EOF
 uf_run 'bash "$FX/uv.sh" miss "$FX/uv0.d"; bash "$FX/uv.sh" hit "$FX/uv1.d"; bash "$FX/uv.sh" plain "$FX/uv2.d"; bash "$FX/cmp.sh" "$FX/uv2.d" "$FX/uv1.d"'
-W='declare -A IUV_A|declare -a IUV_X|declare -i IUV_N|declare -- IUV_S|'$'\n''A=v N=8 kind=A'
+W='declare -A IUV_A|declare -a IUV_X|declare -i IUV_N|declare -- IUV_S|declare -n IUV_R| fake=none'$'\n''dump=listed'$'\n''A=v N=8 kind=A'
 [[ $UF_OUT == "miss rc=0 "?*" $W"$'\n'"hit rc=0 image $W"$'\n'"plain rc=0 "?*" $W"$'\n'"cmp rc=0 " && $UF_OUT != "miss rc=0 image"* ]]
-uf_check "variables declared without a value (declare -gA / -ga / -gi / -g): a hit declares them again without a value (the same kinds and attributes; a normal load's state, the dump lists them), and the first use makes an associative array and integer arithmetic as after a normal load [I3]" $?
+uf_check "variables declared without a value (declare -gA / -ga / -gi / -g / -gn): a hit declares them again without a value (the same kinds and attributes — a nameref stays one; a normal load's state; the canon dump lists them), the first use makes an associative array and integer arithmetic as after a normal load; a value line 'declare -a IUV_FAKE' (a line of its own on bash 5.1) makes no variable [I3, I3 fix 1 M2 M4 L1]" $?
 for f in "$FX"/img/iuv-*.img; do IUV=$f; done
 IFS= read -r -d '' z < "$IUV" || :
 [[ $z == *$'\n''declare -gA IUV_A'$'\n'* && $z == *$'\n''declare -gi IUV_N'$'\n'* && $z == *$'\n''declare -ga IUV_X'$'\n'* \
-   && $z == *$'\n''declare -g IUV_S'$'\n'* && $z != *'IUV_A=()'* ]]
-uf_check "(the image declares them without a value, never as an empty \`X=()\`)" $?
+   && $z == *$'\n''declare -g IUV_S'$'\n'* && $z == *$'\n''declare -gn IUV_R'$'\n'* && $z != *'IUV_A=()'* \
+   && $z != *IUV_FAKE$'\n'* ]]
+uf_check "(the image declares them without a value — the nameref as one —, never as an empty \`X=()\`, and no IUV_FAKE)" $?
 
 # `1<> FILE` (image I3, found by kcl 010 on Cygwin bash 5.2: TFile.encrypt):
 # bash 5.2's declare -f prints it as `<> FILE`, which reads back as fd 0 — an

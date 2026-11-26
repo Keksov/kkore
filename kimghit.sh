@@ -518,17 +518,21 @@ kk._image_pline() {
 # fork (the command substitution runs the command itself). rc 1 when the
 # command fails, the line count is not the file count, or (stat) a line is
 # not six fields with the times in the flavour's form (a stat that ignores a
-# format it does not know is not taken for that flavour).
+# format it does not know is not taken for that flavour). The tool runs under
+# LC_ALL=C (a prefix assignment: no fork more): GNU stat prints %.9Y with the
+# locale's decimal point — `1764134503,123456789` under ru_RU.UTF-8 —, which
+# made every start under another locale than the writer's "stale" (I3 fix 1,
+# CI 45760665404).
 kk._image_stamp() {
     local - __kk_is_f=$1 IFS=$'\n' __kk_is_l __kk_is_t
     local -a __kk_is_a=() __kk_is_w=()
     shift
     case $__kk_is_f in
-        gnu9) __kk_im_so=$(command stat -c '%s %.9Y %.9Z %i %u %a' -- "$@" 2>/dev/null) || return 1 ;;
-        gnu)  __kk_im_so=$(command stat -c '%s %Y %Z %i %u %a' -- "$@" 2>/dev/null) || return 1 ;;
-        bsd9) __kk_im_so=$(command stat -f '%z %Fm %Fc %i %u %Mp%Lp' -- "$@" 2>/dev/null) || return 1 ;;
-        bsd)  __kk_im_so=$(command stat -f '%z %m %c %i %u %Mp%Lp' -- "$@" 2>/dev/null) || return 1 ;;
-        hash) __kk_im_so=$(command cksum -- "$@" 2>/dev/null) || return 1 ;;
+        gnu9) __kk_im_so=$(LC_ALL=C command stat -c '%s %.9Y %.9Z %i %u %a' -- "$@" 2>/dev/null) || return 1 ;;
+        gnu)  __kk_im_so=$(LC_ALL=C command stat -c '%s %Y %Z %i %u %a' -- "$@" 2>/dev/null) || return 1 ;;
+        bsd9) __kk_im_so=$(LC_ALL=C command stat -f '%z %Fm %Fc %i %u %Mp%Lp' -- "$@" 2>/dev/null) || return 1 ;;
+        bsd)  __kk_im_so=$(LC_ALL=C command stat -f '%z %m %c %i %u %Mp%Lp' -- "$@" 2>/dev/null) || return 1 ;;
+        hash) __kk_im_so=$(LC_ALL=C command cksum -- "$@" 2>/dev/null) || return 1 ;;
         *)    return 1 ;;
     esac
     set -f
