@@ -1239,7 +1239,7 @@ kk._img__kidms() {
 kk._img__kidsim() {
     local __kk_img_key="" __kk_img_vs="" __kk_img_nonce="" __kk_img_wtime="" __kk_img_end="" __kk_img_stamp="" __kk_img_stime="" __kk_img_i="" \
           __kk_im_img=$__kk_im9_img __kk_im_dir=$__kk_im9_dir __kk_im_name=$__kk_im9_nm __kk_im_why="" __kk_im_caller=$__kk_im9_cl __kk_im_y
-    local -a __kk_img_files=() __kk_img_edges=() __kk_img_reqf=() __kk_img_units=() __kk_img_classes=() __kk_img_vars=() \
+    local -a __kk_img_files=() __kk_img_edges=() __kk_img_reqf=() __kk_img_units=() __kk_img_classes=() \
           __kk_img_fns=() __kk_img_ro=() __kk_img_base=() __kk_img_hooks=() __kk_im_pl=() __kk_img_k=() __kk_img_v=()
     # the allow-list of the compare (kk._img_cmp … xproc): the loader's frame
     # indices, spellings and completion marks of each unit (P was loaded by
@@ -2582,14 +2582,21 @@ kk._img__loop() {
 
 # kk._img__text — the image text into __kk_imw_P (kk._img__build's lists).
 # kk._img__rwbug — rc 0 when this bash's `declare -f` prints `1<> FILE` as
-# `<> FILE` (bash 5.2; 5.3 prints `1<>`, and `<>` for fd 0): the text would
-# read back as fd 0. One eval and one declare -f into the writer's temp file.
+# `<> FILE` (bash 5.1 and 5.2; 5.3 prints `1<>`): the text would read back
+# as fd 0. Then __kk_imj_rw0=1 when it prints fd 0's `0<> FILE` as `0<> FILE`
+# — only then is its bare ` <> ` surely fd 1 (kk._img__rwfix's re-print check
+# cannot tell fd 0 from fd 1 if both printed bare: I4 fix 1, S3). One eval
+# and one declare -f into the writer's temp file. __KK_IMG_RWFAKE0 non-empty
+# makes the probe's `0<>` read bare (a test seam: a bash printing both bare).
 kk._img__rwbug() {
     local __kk_imr_t=""
-    eval '__kk_im_rwprobe() { : 1<> /dev/null; }'
+    eval '__kk_im_rwprobe() { : 1<> /dev/null; : 0<> /dev/null; }'
     declare -f __kk_im_rwprobe > "$__kk_imw_t.rw" 2>/dev/null
     unset -f __kk_im_rwprobe
     read -r -N 4096 __kk_imr_t < "$__kk_imw_t.rw" || :
+    if [[ -n ${__KK_IMG_RWFAKE0-} ]]; then __kk_imr_t=${__kk_imr_t//'0<> '/'<> '}; fi
+    __kk_imj_rw0=0
+    if [[ $__kk_imr_t == *': 0<> /dev/null'* ]]; then __kk_imj_rw0=1; fi
     [[ $__kk_imr_t != *'1<>'* ]]
 }
 # kk._img__rwfix — on such a bash: rc 0 when every function of the image
@@ -2631,7 +2638,7 @@ kk._img__rwfix() {
     return 0
 }
 kk._img__text() {
-    local LC_ALL=C IFS=$'\n' __kk_imj_s __kk_imj_x __kk_imj_v __kk_imj_rw=0 __kk_imj_at __kk_imj_fl __kk_imj_l0 __kk_imj_l1 __kk_imj_l2 \
+    local LC_ALL=C IFS=$'\n' __kk_imj_s __kk_imj_x __kk_imj_v __kk_imj_rw=0 __kk_imj_rw0=0 __kk_imj_at __kk_imj_fl __kk_imj_l0 __kk_imj_l1 __kk_imj_l2 \
           __kk_imj_l3 __kk_imj_l4 __kk_imj_fn="" __kk_imj_cr __kk_imj_c __kk_imj_p __kk_imj_w=$EPOCHSECONDS __kk_imj_n=0
     local -a __kk_imj_kv=() __kk_imj_ch=() __kk_imj_ps=() __kk_imj_af=("${__kk_imk_nf[@]}" "${__kk_imk_rf[@]}")
     local -A __kk_imj_isro=()
@@ -2655,6 +2662,9 @@ kk._img__text() {
     # that check: no image, a hold
     __kk_imj_rw=0
     if [[ $__kk_imj_fn == *' <> '* ]] && kk._img__rwbug; then
+        if (( ! __kk_imj_rw0 )); then
+            __kk_imw_why="bash $BASH_VERSION prints \`1<> FILE\` as \`<> FILE\` (fd 0 when read back), and fd 0's \`0<> FILE\` bare too: a function text with \` <> \` cannot be told apart — no image"; return 1
+        fi
         if ! kk._img__rwfix; then
             __kk_imw_why="bash $BASH_VERSION prints \`1<> FILE\` as \`<> FILE\` (fd 0 when read back), and a function text with \` <> \` does not read back with \` 1<> \`: no image"; return 1
         fi
@@ -2828,12 +2838,13 @@ kk._img__text() {
 # whose pid is gone (kill -0). __KK_IMG_MAXN / __KK_IMG_MAXB are for tests.
 kk._img_prune() {
     local __kk_imp_x __kk_imp_n __kk_imp_l1 __kk_imp_l2 __kk_imp_i __kk_imp_o __kk_imp_t __kk_imp_r \
-          __kk_imp_now=$EPOCHSECONDS __kk_imp_tot=0 __kk_imp_maxn=${__KK_IMG_MAXN:-64} __kk_imp_maxb=${__KK_IMG_MAXB:-268435456}
+          __kk_imp_now=$EPOCHSECONDS __kk_imp_tot=0 __kk_imp_hn="" __kk_n __kk_imp_maxn=${__KK_IMG_MAXN:-64} __kk_imp_maxb=${__KK_IMG_MAXB:-268435456}
     local -a __kk_imp_e=() __kk_imp_p=() __kk_imp_w=() __kk_imp_s=() __kk_imp_g=() __kk_imp_q=() __kk_imp_a=() \
           __kk_imp_d=() __kk_imp_refs=() __kk_im_pl=() __kk_img_files=()
     local -A __kk_imp_gone=() __kk_imp_nc=()
     [[ -n $__kk_imp_maxn && $__kk_imp_maxn != *[!0-9]* ]] || __kk_imp_maxn=64
     [[ -n $__kk_imp_maxb && $__kk_imp_maxb != *[!0-9]* ]] || __kk_imp_maxb=268435456
+    kk._unit_lexnorm "$KBOOL_HOME"; __kk_imp_hn=$__kk_n
     kk._img_glob "$__kk_im_dir" __kk_imp_e
     for __kk_imp_x in "${__kk_imp_e[@]}"; do
         __kk_imp_n=${__kk_imp_x##*/}
@@ -2856,7 +2867,7 @@ kk._img_prune() {
                     continue
                 fi
                 if [[ $__kk_imp_x != "$__kk_im_img" ]]; then
-                    if [[ ${__kk_im_pl[2]} == "$__kk_imw_tag" && ! -d ${__kk_im_pl[3]} ]] \
+                    if [[ ${__kk_im_pl[2]} == "$__kk_imw_tag" ]] && ! kk._img__homeok "${__kk_im_pl[3]}" \
                        || (( __kk_imp_now - 10#${__kk_im_pl[0]} > 2592000 )); then
                         __kk_ima_f+=("$__kk_imp_x"); __kk_imp_gone[$__kk_imp_x]=1
                         continue
@@ -2914,6 +2925,25 @@ kk._img_prune() {
         [[ ${__kk_imp_r##*/} == *.* && -f $__kk_imp_n && -z ${__kk_imp_gone[$__kk_imp_n]-} && ${__kk_imp_nc[$__kk_imp_n]-} == "$__kk_imp_t" ]] || __kk_ima_f+=("$__kk_imp_x")
     done
     return 0
+}
+
+# kk._img__homeok HOME — rc 0 when the KBOOL_HOME of an image's plain line
+# (lexically normalised: kk._unit_lexnorm makes `C:/x` `/c/x`) exists in this
+# runtime: this start's own KBOOL_HOME in that form (__kk_imp_hn, kk._img_prune's), a folder
+# as spelt, or — on the Windows runtimes — a drive spelt `/X/…` reached as
+# `X:/…` (Cygwin has no `/c`: its drive folders are /cygdrive/c, and its
+# `-d /c/x` is false — every write pruned every other image of a tree with a
+# drive-letter KBOOL_HOME before I4 fix round 1, S1).
+kk._img__homeok() {
+    [[ -n $1 ]] || return 1
+    [[ $1 != "$__kk_imp_hn" ]] || return 0
+    [[ ! -d $1 ]] || return 0
+    case $OSTYPE in
+        msys*|cygwin*)
+            if [[ $1 == /[A-Za-z]/* ]] && [[ -d ${1:1:1}:/${1:3} ]]; then return 0; fi
+            if [[ $1 == /[A-Za-z] ]] && [[ -d ${1:1:1}:/ ]]; then return 0; fi ;;
+    esac
+    return 1
 }
 
 # kk._img__cap KEYS CAP — kk._img_prune's caps: mark (__kk_imp_d) the oldest

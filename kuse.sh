@@ -85,7 +85,7 @@
 #   kk.image --rebuild [--optional] UNIT...  a normal load, then the image
 #                           written even when the old one is valid; clears a
 #                           hold. rc = the load's.
-#   kk.image --forget UNIT...  remove this request's images, .ref files, holds
+#   kk.image --forget UNIT...  remove this request's images, .ref, .fnc and .vck files, holds
 #                           (every key) and dead temps from the image folder (a
 #                           trusted one; also under KBOOL_IMAGE=off). rc 0; 2
 #                           without a unit.
@@ -192,8 +192,10 @@
 # guarded; set KBOOL_IMAGE_CHAIN=off for such a program. A chained load is
 # refused (no image, a hold) when it changes the hash table, an exported
 # variable, a nameref, a readonly variable, the attributes of a variable or
-# removes one, or when an earlier value (or key) it would keep in the base
-# list holds a CR byte (the MSYS-family parsers drop it); a header-less file
+# removes one, or when an earlier value (or key) of a slot it CHANGES holds a
+# CR byte (the base list is one compound array, which the MSYS-family parsers
+# read without its CR bytes; a scalar it only READS keeps such a value in its
+# %q form, flag q, and is compared as that); a header-less file
 # loaded by path before kk.image makes it a plain kk.uses. Holds and pruning
 # go by (request, P, mode): the image file name hashes all three, so a hold
 # is shared by every script with that key — one whose load is refused (a
@@ -253,7 +255,7 @@
 # pair excepted); a stamped file has a future mtime (or, stat, ctime); a
 # function holds a CR byte this parser drops that kklass's kk._fn_text_cr
 # cannot rewrite; bash < 5.2 and a function text with `&> "$` (IMG-D9); a
-# bash whose declare -f prints `1<> FILE` as `<> FILE` (5.2: it reads back as
+# bash whose declare -f prints `1<> FILE` as `<> FILE` (5.1 and 5.2: it reads back as
 # fd 0; probed) and a function text with a ` <> ` that does not read back as
 # ` 1<> ` (such a bash prints fd 0 as `0<> FILE`, so the image says ` 1<> `
 # for its bare ` <> ` — every function holding one defined again from that

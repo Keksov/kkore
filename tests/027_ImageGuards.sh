@@ -175,6 +175,45 @@ for v in gone link ro; do
     uf_check "NAME.vck $v: the clash check name by name — a plain load with a bare local, a hit without, nothing followed [I4]" $?
     chmod u+w "$VCK" 2>/dev/null; rm -f "$VCK" "$FX/vck.target"
 done
+# (I4 fix round 1, critic L4) NAME.vck a symbolic link to an EXISTING regular
+# file: not followed (the target keeps its bytes), the check name by name —
+# where this runtime makes a real link
+uf_run "$H"'; __KK_IMG_VCKFILE=1 kk.image --rebuild zz 2>/dev/null'
+for VCK in "$FX"/img/zz-*.vck; do :; done
+rm -f "$VCK"; printf 'keep\n' > "$FX/vck.target"
+if ln -s "$FX/vck.target" "$VCK" 2>/dev/null && [[ -L $VCK ]]; then
+    uf_run "$H; $D"'; __KK_IMG_VCKFILE=1; f() { local ZZ_M; kk.image zz 2>"$FX/e.txt"; echo "rc=$?"; }; f; grep -c "exists in this shell already" "$FX/e.txt"; IFS= read -r -d "" t < "$FX/vck.target"; printf "target=%s" "$t"'
+    [[ $UF_OUT == "rc=0"$'\n'"1"$'\n'"target=keep" ]]
+    uf_check "NAME.vck a symbolic link to an existing file: not written through (the target keeps its bytes), the clash found name by name [I4 fix 1, L4]" $?
+else
+    kt_test_start "NAME.vck a symbolic link to an existing file [I4 fix 1, L4]"; kt_test_pass "no symbolic links on this runtime (ln -s copies): the link cases above cover the check"
+fi
+rm -f "$VCK" "$FX/vck.target"
+# a NAME.vck that another start wrote between this start's write and read
+# (__KK_IMG_VCKHOOK, run between them): a marker of the same image but another
+# shell, or this start's own marker after a hole of NUL bytes (a truncation by
+# another start: its names lost) — never "no name exists": the check name by
+# name finds the bare local
+uf_run "$H"'; __KK_IMG_VCKFILE=1 kk.image --rebuild zz 2>/dev/null'
+VH='vh_foreign() { local z m; IFS= read -r -d "" z < "$1"; m=${z%$'"'"'\n'"'"'}; m=${m##*$'"'"'\n'"'"'}; printf "%s\n" "${m%%.*}.1.1" > "$1"; }
+vh_hole() { local z m; IFS= read -r -d "" z < "$1"; m=${z%$'"'"'\n'"'"'}; m=${m##*$'"'"'\n'"'"'}; { printf "\0%.0s" 1 2 3 4 5 6 7 8; printf "%s\n" "$m"; } > "$1"; }'
+for hk in vh_foreign vh_hole; do
+    uf_run "$H; $D; $VH"'; __KK_IMG_VCKFILE=1 __KK_IMG_VCKHOOK='"$hk"'; f() { local ZZ_M; kk.image zz 2>"$FX/e.txt"; echo "rc=$?"; }; f; echo "survived $(zz.n)"; grep -c "exists in this shell already" "$FX/e.txt"'
+    [[ $UF_OUT == "rc=0"$'\n'"survived n=2 two=2 s=unit"$'\n'"1" ]]
+    uf_check "NAME.vck rewritten between write and read ($hk): not taken for \"no name exists\" — the bare local found name by name, a plain load [I4 fix 1, L4]" $?
+done
+# (I4 fix 1, L6) a result with names is not left in NAME.vck
+uf_run "$H; $D"'; __KK_IMG_VCKFILE=1; f() { local ZZ_M; kk.image zz 2>/dev/null; }; f; for v in "$FX"/img/zz-*.vck; do [[ -s $v ]] && echo "left" || echo "empty"; done'
+[[ $UF_OUT == "empty" ]]
+uf_check "a clash found through NAME.vck: the file emptied after the read (no caller's records left beside the image) [I4 fix 1, L6]" $?
+# (I4 fix 1, L1) the check's output sink cannot be opened (no free descriptor;
+# __KK_IMG_NULL a folder stands for it): the declare -p and its marker do not
+# run — never read as "no name exists" —, nor does the loop: a plain kk.uses
+for vk in "" 1; do
+    uf_run "$H; $D"'; __KK_IMG_VCKFILE='"$vk"' __KK_IMG_NULL="$FX"; kk.image zz 2>"$FX/e.txt"; echo "rc=$? ${__KK_UNIT_PID[zz]+normal}"; grep -c "the clash check could not run" "$FX/e.txt"'
+    [[ $UF_OUT == "rc=0 normal"$'\n'"1" ]]
+    uf_check "the clash check's sink cannot be opened (${vk:+NAME.vck, }no clash in fact): a plain kk.uses, the reason named — not a hit [I4 fix 1, L1]" $?
+done
 uf_run "$H"'; kk.image zp 2>/dev/null'
 uf_run "$H"'; f() { local -a ZP_M; kk.image zp 2>/dev/null; echo "rc=$?"; }; f; declare -p ZP_M'
 [[ $UF_OUT == "rc=0"$'\n'"declare -A ZP_M=([a]=\"1\" [b]=\"2\" )" || $UF_OUT == "rc=0"$'\n'"declare -A ZP_M=([b]=\"2\" [a]=\"1\" )" ]]

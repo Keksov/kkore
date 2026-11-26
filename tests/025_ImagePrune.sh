@@ -91,6 +91,21 @@ R=$(grep -c '^rm$' "$FX/calls")
 [[ $UF_OUT == "rc=0" && $LEFT == "home-b2222222.img old-b2222222.img old-b2222222.vck young-a1111111.hold" && $R == 1 ]]
 uf_check "one write prunes: a gone KBOOL_HOME (this runtime's tag only), > 30 days, unreadable, the .ref/.hold/.vck of a pruned image, an orphan .ref or .vck (I4), a hold > 1 h — with ONE rm ($R)" $?
 rm -f "$FX"/img/home-* "$FX"/img/old-* "$FX"/img/young-*
+# S1 (I4 fix round 1): an image of this runtime whose KBOOL_HOME is a tree
+# spelt with a drive letter — kept normalised as /x/… (kk._unit_lexnorm) — is
+# kept when the tree exists: Cygwin has no /c (its drive folders are
+# /cygdrive/c), and before the fix every write pruned all such images
+if [[ $OSTYPE == msys* || $OSTYPE == cygwin* ]] && command -v cygpath >/dev/null 2>&1; then
+    hm=$(cygpath -m "$FX")
+    hn=${hm:0:1}; hn="/${hn,}/${hm:3}"
+    fake drv-c1111111.img $(( N - 10 )) 100 "$TAG" "$hn"
+    fake drv-d2222222.img $(( N - 10 )) 100 "$TAG" "$hn/gone"
+    uf_run "$H"'; kk.image --rebuild ib; echo "rc=$?"'
+    left 'drv-*'
+    [[ $UF_OUT == "rc=0" && $LEFT == "drv-c1111111.img" ]]
+    uf_check "a drive-letter KBOOL_HOME ($hm, kept as $hn) of this runtime that exists: its image stays; one that is gone is pruned [I4 fix 1, S1]" $?
+    rm -f "$FX"/img/drv-*
+fi
 
 for i in 1 2 3 4 5 6 7 8 9 10; do fake "zz-0000000$(( i % 10 )).img" $(( N - 1000 + i )); done
 uf_run "$H"'; kk.image --rebuild ib'

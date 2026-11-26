@@ -53,6 +53,10 @@ kk._image_run() {
                     __kk_im_why+="; the image was written $(( EPOCHSECONDS - 10#$__kk_im_wt )) s ago: a hold for an hour"
                     if (( __kk_im_rc == 3 )); then
                         kk._image_hold "an image written less than 10 minutes before failed on its start" "" "" drop
+                    elif (( __kk_im_stale == 2 )); then
+                        # (its header unreadable here: 10 minutes, dated 50 back — L5)
+                        __kk_im_why=${__kk_im_why%an hour}"10 minutes"
+                        kk._image_hold "an image written less than 10 minutes before has a header this start cannot read" "" "" "" $(( EPOCHSECONDS - 3000 ))
                     else
                         kk._image_hold "an image written less than 10 minutes before was stale again"
                     fi
@@ -623,7 +627,7 @@ kk._image_hit() {
     local __kk_img_key="" __kk_img_vs="" __kk_img_nonce="" __kk_img_wtime="" __kk_img_end="" __kk_img_stamp="" __kk_img_stime="" __kk_img_i="" __kk_hi_e \
           __kk_hi_rc=0
     local -a __kk_img_files=() __kk_img_edges=() __kk_img_reqf=() __kk_img_units=() __kk_img_classes=() \
-          __kk_img_vars=() __kk_img_fns=() __kk_img_ro=() __kk_img_base=() __kk_img_hooks=() __kk_im_pl=() __kk_img_k=() __kk_img_v=()
+          __kk_img_fns=() __kk_img_ro=() __kk_img_base=() __kk_img_hooks=() __kk_im_pl=() __kk_img_k=() __kk_img_v=()
     kk._image_check || return
     kk._image__apply || __kk_hi_rc=1
     if (( __kk_hi_rc )); then
@@ -677,7 +681,7 @@ kk._image__apply() {
 kk._image_path() {
     local __kk_img_key="" __kk_img_vs="" __kk_img_nonce="" __kk_img_wtime="" __kk_img_end="" __kk_img_stamp="" __kk_img_stime="" __kk_hi_rc=0
     local -a __kk_img_files=() __kk_img_edges=() __kk_img_reqf=() __kk_img_units=() __kk_img_classes=() \
-          __kk_img_vars=() __kk_img_fns=() __kk_img_ro=() __kk_img_base=() __kk_img_hooks=() __kk_im_pl=()
+          __kk_img_fns=() __kk_img_ro=() __kk_img_base=() __kk_img_hooks=() __kk_im_pl=()
     if (( __kk_im_rc != 0 )); then
         kk._image_dbg "--path: ${__kk_im_why:-not applicable}"
         return 1
@@ -727,7 +731,18 @@ kk._image__check() {
     elif [[ ! -O $__kk_im_img ]]; then
         kk._image_warn "owned by another user"; __kk_im_why="the image is owned by another user"; return 2
     fi
-    kk._image__hdr || return 1
+    if ! kk._image__hdr; then
+        # (a header this start cannot read, whose plain line still tells its
+        # write time: kk.image holds an image written less than 10 minutes
+        # before for 10 minutes — a writer and a reader that disagree on the
+        # format would otherwise cost a full write on every start; I4 fix 1, L5)
+        local __kk_hc_l1="" __kk_hc_l2=""
+        { IFS= read -r __kk_hc_l1 && IFS= read -r __kk_hc_l2; } < "$__kk_im_img" 2>/dev/null
+        if [[ $__kk_hc_l1 == "# kbool image v1 "* ]] && kk._image_pline "$__kk_hc_l2"; then
+            __kk_im_wt=${__kk_im_pl[0]} __kk_im_stale=2
+        fi
+        return 1
+    fi
     if [[ ${__kk_im_pl[5]} != "$__kk_im_mode" ]]; then __kk_im_why="the image has another key (check mode ${__kk_im_pl[5]})"; return 1; fi
     for __kk_hc_f in "${__kk_img_files[@]}"; do
         if [[ ! -f $__kk_hc_f ]]; then
@@ -896,6 +911,7 @@ kk._image__hdr() {
     { IFS= read -r __kk_hc_1 && [[ $__kk_hc_1 == "# kbool image v1 "[1-9]*" "[1-9]*" "[1-9]* && ${#__kk_hc_1} -le 50 ]] \
       && __kk_hd_n=${__kk_hc_1#"# kbool image v1 "} && __kk_hd_v=${__kk_hd_n##* } && __kk_hd_p=${__kk_hd_n#* } \
       && __kk_hd_p=${__kk_hd_p%% *} && __kk_hd_n=${__kk_hd_n%% *} \
+      && [[ $__kk_hc_1 == "# kbool image v1 $__kk_hd_n $__kk_hd_p $__kk_hd_v" && $__kk_hd_p == [1-9]* && $__kk_hd_v == [1-9]* ]] \
       && [[ $__kk_hd_n$__kk_hd_p$__kk_hd_v != *[!0-9]* && ${#__kk_hd_n} -le 12 && ${#__kk_hd_p} -le 12 && ${#__kk_hd_v} -le 12 ]] \
       && (( 10#$__kk_hd_p < 10#$__kk_hd_n )) \
       && IFS= read -r -N "$__kk_hd_n" __kk_hc_2 && IFS= read -r -N "$__kk_hd_v" __kk_img_vs; } < "$__kk_im_img" 2>/dev/null \
@@ -1045,47 +1061,67 @@ kk._image__fits() {
 
 # kk._image__clash — the clash check of kk._image__fits: rc 2 (__kk_im_why)
 # when a name of the variables' line __kk_img_vs exists in the caller's
-# view. ONE `declare -p` over all the names (the line split on <US> and
-# newline: its first field `#V` names no variable, so the call never runs
-# without names — which would print every variable). I4: a loop of four
-# expansions per name cost ~25 ms per fv.dlg start for its ~3000 names on
-# the laptop; one declare -p 4-8 ms there (most of it the "not found"
-# messages it writes to /dev/null). It also sees
-# a bare `local NAME` (neither a value nor an attribute), which the loop's
+# view, or when the check cannot run. ONE `declare -p` over all the names
+# (the line split on <US> and newline: its first field `#V` names no
+# variable, so the call never runs without names — which would print every
+# variable). I4: a loop of four expansions per name cost ~25 ms per fv.dlg
+# start for its ~3000 names on the laptop; one declare -p 4-8 ms there (most
+# of it the "not found" messages it writes to /dev/null). It also sees a
+# bare `local NAME` (neither a value nor an attribute), which the loop's
 # expansions did not (the limit documented before I4: such a NAME of an
-# image array ended the script inside the source). Its output: on bash >=
-# 5.3 a `${ …; }` substitution (no fork); older ones print it into the
-# image's NAME.vck (the writer makes it empty under umask 077 beside the
-# image; pruning and --forget take it with the image), closed by a marker
-# line `NONCE.BASHPID.RANDOM` — read back, the text counts only when it ends
-# with that marker and no NUL byte cut it (a start of the same image at the
-# same moment that truncated or wrote the file makes the marker another or
-# puts it after a hole: then the loop below). NAME.vck missing, a symbolic
-# link (never followed), not a regular file of this user's, not writable:
-# one `declare -p NAME` per name (exact, slow; __KK_IMG_VCKFILE non-empty
-# takes the file path on bash >= 5.3 too — a test seam, kkore 027).
+# image array ended the script inside the source).
+# Its output, closed by a marker line `NONCE.BASHPID.SRANDOM` ($SRANDOM: a
+# hit reads no $RANDOM, whose seeded sequence is the caller's), counts only
+# when it ends with that marker: on bash >= 5.3 a `${ …; }` substitution (no
+# fork); older ones print it into the image's NAME.vck (the writer makes it
+# empty under umask 077 beside the image; pruning and --forget take it with
+# the image) and read it back — a start of the same image at the same moment
+# that truncated or wrote the file leaves another marker or a NUL hole before
+# it, and a NAME.vck that is a symbolic link (never followed), not a regular
+# file of this user's or not writable is not used. The declare -p and the
+# marker sit in ONE redirected group: a redirection that fails (no free
+# descriptor) runs neither, so a missing marker is never read as "no name
+# exists". A result with names is not left in NAME.vck (emptied after the
+# read). Without a marked result: one `declare -p NAME` per name, the whole
+# loop in one redirected group (I4 fix 1: a redirection per name cost ~70 ms
+# for fv.dlg); a group that did not run (its redirection failed) refuses (rc
+# 2, the reason named). __KK_IMG_VCKFILE non-empty takes the file path on
+# bash >= 5.3 too, and __KK_IMG_VCKHOOK=FN runs FN between the write and the
+# read of NAME.vck, __KK_IMG_NULL=PATH replaces /dev/null as the sink of its
+# redirected groups (a sink that cannot be opened stands for no free
+# descriptor) — test seams, kkore 027.
 kk._image__clash() {
-    local - IFS=$__KK_SEP$'\n' __kk_hc_o="" __kk_hc_m __kk_hc_f=$__kk_im_dir/$__kk_im_name.vck __kk_hc_ok=0 __kk_hc_x __kk_hc_n
+    local - IFS=$__KK_SEP$'\n' __kk_hc_o="" __kk_hc_m=$__kk_img_nonce.$BASHPID.$SRANDOM __kk_hc_f=$__kk_im_dir/$__kk_im_name.vck \
+          __kk_hc_ok=0 __kk_hc_x __kk_hc_n __kk_hc_g="" __kk_hc_v=0 __kk_hc_nul=${__KK_IMG_NULL:-/dev/null}
     set -f
     if (( BASH_VERSINFO[0] > 5 || ( BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 3 ) )) && [[ -z ${__KK_IMG_VCKFILE-} ]]; then
-        eval '__kk_hc_o=${ declare -p -- $__kk_img_vs 2>/dev/null; }'
-        __kk_hc_ok=1
+        eval '__kk_hc_o=${ { declare -p -- $__kk_img_vs; printf "%s\n" "$__kk_hc_m"; } 2>"$__kk_hc_nul"; }'
+        __kk_hc_o+=$'\n'                     # (the substitution drops the trailing newline)
     elif [[ -f $__kk_hc_f && ! -L $__kk_hc_f && -O $__kk_hc_f && -w $__kk_hc_f ]]; then
-        __kk_hc_m=$__kk_img_nonce.$BASHPID.$RANDOM
-        { { declare -p -- $__kk_img_vs 2>/dev/null; printf '%s\n' "$__kk_hc_m"; } >| "$__kk_hc_f"; } 2>/dev/null
+        __kk_hc_v=1
+        { { declare -p -- $__kk_img_vs; printf '%s\n' "$__kk_hc_m"; } 2>"$__kk_hc_nul" >| "$__kk_hc_f"; } 2>/dev/null
+        if [[ -n ${__KK_IMG_VCKHOOK-} ]]; then "$__KK_IMG_VCKHOOK" "$__kk_hc_f"; fi
         { IFS= read -r -d '' __kk_hc_o < "$__kk_hc_f"; } 2>/dev/null
-        if [[ $__kk_hc_o == "$__kk_hc_m"$'\n' ]]; then
-            __kk_hc_o="" __kk_hc_ok=1
-        elif [[ $__kk_hc_o == *$'\n'"$__kk_hc_m"$'\n' ]]; then
-            __kk_hc_ok=1
-        fi
+    fi
+    if [[ $__kk_hc_o == "$__kk_hc_m"$'\n' ]]; then
+        __kk_hc_o="" __kk_hc_ok=1
+    elif [[ $__kk_hc_o == *$'\n'"$__kk_hc_m"$'\n' ]]; then
+        __kk_hc_ok=1
+        # (names were found: not left in NAME.vck)
+        if (( __kk_hc_v )); then { : >| "$__kk_hc_f"; } 2>/dev/null; fi
     fi
     if (( ! __kk_hc_ok )); then
         __kk_hc_o=""
-        for __kk_hc_x in $__kk_img_vs; do
-            [[ $__kk_hc_x != "#V" ]] || continue
-            if declare -p -- "$__kk_hc_x" >/dev/null 2>&1; then __kk_hc_o="declare -- $__kk_hc_x"; break; fi
-        done
+        {
+            for __kk_hc_x in $__kk_img_vs; do
+                [[ $__kk_hc_x != "#V" ]] || continue
+                if declare -p -- "$__kk_hc_x"; then __kk_hc_o="declare -- $__kk_hc_x"; break; fi
+            done
+            __kk_hc_g=1
+        } >"$__kk_hc_nul" 2>&1
+        if [[ -z $__kk_hc_g ]]; then
+            __kk_im_why="the clash check could not run (its output could not be redirected)"; return 2
+        fi
     fi
     [[ -n $__kk_hc_o ]] || return 0
     # (the first record: `declare -FLAGS NAME[=…]`)
@@ -1124,8 +1160,18 @@ kk._image__fntext() {
     if [[ -L $__kk_it_f ]]; then return 3; fi
     [[ -e $__kk_it_f ]] || return 2
     [[ -f $__kk_it_f && -O $__kk_it_f ]] || return 3
-    { declare -f -- "$1" > "$__kk_it_f"; } 2>/dev/null || return 4
+    # (the text and a marker line `NONCE.BASHPID.SRANDOM` in ONE redirected
+    # group, read back up to the first NUL: a start of the same image at the
+    # same moment that wrote ITS shell's text, or truncated the file, leaves
+    # another marker or a NUL hole — never a text read as ours; rc 4 then, a
+    # plain kk.uses. I4 fix 1, S5. __KK_IMG_FNCHOOK=FN runs FN between the
+    # write and the read — a test seam, kkore 028)
+    local __kk_it_m=$__kk_img_nonce.$BASHPID.$SRANDOM
+    { { declare -f -- "$1"; printf '%s\n' "$__kk_it_m"; } 2>/dev/null >| "$__kk_it_f"; } 2>/dev/null || return 4
+    if [[ -n ${__KK_IMG_FNCHOOK-} ]]; then "$__KK_IMG_FNCHOOK" "$__kk_it_f"; fi
     { IFS= read -r -d '' __kk_it_z < "$__kk_it_f"; } 2>/dev/null
+    [[ $__kk_it_z == *$'\n'"$__kk_it_m"$'\n' ]] || return 4
+    __kk_it_z=${__kk_it_z%"$__kk_it_m"$'\n'}
     while [[ $__kk_it_z == *$'\n' ]]; do __kk_it_z=${__kk_it_z%$'\n'}; done
     __kk_hc_q=$__kk_it_z
     [[ -n $__kk_hc_q ]]

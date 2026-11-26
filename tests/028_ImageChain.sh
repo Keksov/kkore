@@ -142,6 +142,14 @@ if_unit "$FX" pcr <<'EOF'
 declare -g PCR_SED
 printf -v PCR_SED 's/\r$//'
 EOF
+if_unit "$FX" pcu <<'EOF'
+declare -g PCU_SED
+printf -v PCU_SED 's/é\r$//'
+EOF
+if_unit "$FX" pcv <<'EOF'
+kk.uses pcu || return
+PCV_COPY=$PCU_SED
+EOF
 if_unit "$FX" pcq <<'EOF'
 kk.uses pcr || return
 PCQ_COPY=$PCR_SED
@@ -277,6 +285,12 @@ uf_check "P's function redefined by the caller first: a plain kk.uses" $?
 uf_run "$H"'; kk.uses pb; __KK_IMG_FNFILE=1; kk.image pd 2>"$FX/e.txt"; e1; pb.f'
 [[ $UF_OUT == "kbool: image: loaded from $PDIMG"$'\n'"pd's pb.f" && -f ${PDIMG%.img}.fnc ]]
 uf_check "the text check through NAME.fnc (bash < 5.3; forced here): a hit" $?
+# (I4 fix 1, S5) a start of the same image in ANOTHER shell — whose pb.f is
+# the image's earlier text — writes NAME.fnc between this start's write and
+# read (__KK_IMG_FNCHOOK); this start's own pb.f differs: never a match
+uf_run "$H"'; kk.uses pb; o=$(declare -f pb.f); pb.f() { echo mine; }; fh() { printf "%s\n" "$o" > "$1"; }; __KK_IMG_FNFILE=1 __KK_IMG_FNCHOOK=fh; kk.image pd 2>"$FX/e.txt"; e1; pb.f'
+[[ $UF_OUT == "kbool: image: cannot write or read "*".fnc (the function text check of this image); a normal load (kk.uses pd)"$'\n'"pd's pb.f" ]]
+uf_check "NAME.fnc rewritten by another shell between this start's write and read (that shell's pb.f the image's earlier text, this one's another): no false match — a plain kk.uses [I4 fix 1, S5]" $?
 rm -f "${PDIMG%.img}.fnc"
 PDN=${PDIMG##*/}; PDN=${PDN%.img}
 uf_run "$H"'; kk.uses pb; __KK_IMG_FNFILE=1; kk.image pd 2>"$FX/e.txt"; e1; fl "wrote"; [[ -f "'"${PDIMG%.img}.fnc"'" ]] && echo fnc; ls "$FX/img" | grep -c "^pd-.*\.hold$"'
@@ -478,6 +492,16 @@ uf_check "... the next start is a hit, the copy keeps its CR [I4]" $?
 uf_run "$H"'; kk.uses pcr; printf -v PCR_SED "s/\\r\$/x/"; kk.image pcq 2>"$FX/e.txt"; e1; echo "${__KK_UNIT_PID[pcq]+normal}"; pcq.n'
 [[ $UF_OUT == "kbool: image: PCR_SED, which this call's load reads, differs from when the image was made; a normal load (kk.uses pcq)"$'\n'"normal"$'\n'"\$'s/\\r\$/x/'" ]]
 uf_check "... the script changed that value (another one with a CR): a plain kk.uses, the copy the new value [I4]" $?
+# (I4 fix 1) a CR value with a non-ASCII letter, started under a UTF-8
+# locale: both sides take the %q form under LC_ALL=C (UTF-8's %q would keep
+# the letter as it is) — a hit
+noholds
+uf_run 'export LC_ALL=C.UTF-8; '"$H"'; kk.uses pcu; kk.image pcv 2>"$FX/e.txt"; fl "wrote"'
+A=$UF_OUT
+uf_run 'export LC_ALL=C.UTF-8; '"$H"'; kk.uses pcu; kk.image pcv 2>"$FX/e.txt"; e1'
+UF_OUT="$A | $UF_OUT"
+[[ $UF_OUT == "kbool: image: wrote "*"/pcv-"*".img | kbool: image: loaded from "*"/pcv-"*".img" ]]
+uf_check "a read base value 's/é<CR>\$//' under LC_ALL=C.UTF-8: written, then a hit (the %q forms compared under LC_ALL=C) [I4 fix 1]" $?
 noholds
 uf_run "$H"'; kk.uses pb; PB_V=9; kk.image --rebuild pc 2>"$FX/e.txt"; fl "no image written"; echo "copy=$PC_COPY"; ls "$FX/img" | grep -c "^pc-.*\.hold$"'
 [[ $UF_OUT == "kbool: image: no image written: the simulated image start differs: V:PB_V differs from the writer's"$'\n'"copy=9"$'\n'"1" ]]

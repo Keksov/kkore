@@ -152,4 +152,43 @@ uf_run 'source "$FX/kbool.sh"; set -e; kk.image ia 2>&1; echo "survived ${__KK_U
 [[ $UF_OUT == "survived normal" ]]
 uf_check "the next start under set -e: held, a plain load, silent" $?
 
+# L3 / L5 (I4 fix round 1): line 1 must be exactly `# kbool image v1 N P V`
+# (before, `N P 77 V` hit); and a fresh image whose header this start cannot
+# read (its plain line still tells its write time) is held 10 minutes — not
+# written again on every start (a writer and a reader that disagree)
+rm -f "$FX"/img/*.hold
+uf_run 'source "$FX/kbool.sh"; kk.image --rebuild ia'
+for f in "$FX"/img/ia-*.img; do IMG=$f; done
+if_pfield "$IMG" 7; N0=$IF_F
+IFS= read -r L1 < "$IMG"
+IFS= read -r -d '' Z < "$IMG" || :
+Z=${Z/"$L1"$'\n'/"${L1% *} 77 ${L1##* }"$'\n'}
+( umask 077; printf '%s' "$Z" > "$IMG" )
+uf_run 'source "$FX/kbool.sh"; kk.image ia; echo "pid=${__KK_UNIT_PID[ia]+normal}"; kk.unit --forget ia; kk.image ia; echo "pid=${__KK_UNIT_PID[ia]+normal}"'
+if_pfield "$IMG" 7
+HT="" HR=""
+[[ -f ${IMG%.img}.hold ]] && IFS=' ' read -r HT HR < "${IMG%.img}.hold"
+[[ $UF_OUT == "pid=normal"$'\n'"pid=normal" && $IF_F == "$N0" && $HR == *"cannot read"* && -n $HT && $HT != *[!0-9]* ]] \
+   && (( EPOCHSECONDS - HT >= 2990 && EPOCHSECONDS - HT <= 3060 ))
+uf_check "a fresh image with line 1 \`N P 77 V\`: no hit (line 1 exact), a plain load, a 10-minute hold (dated 50 minutes back), the image not written again; the next start held [I4 fix 1, L3 L5] (hold='$HT $HR')" $?
+# line 1's lengths checked one by one (I4 fix 1, critic L4): the reason a
+# start gives (kk.image --path, kk._image_dbg shown without VERBOSE_KKLASS)
+rm -f "$FX"/img/*.hold
+uf_run 'source "$FX/kbool.sh"; kk.image --rebuild ia'
+for f in "$FX"/img/ia-*.img; do IMG=$f; done
+IFS= read -r L1 < "$IMG"
+IFS= read -r -d '' Z < "$IMG" || :
+cp "$IMG" "$FX/img.l1"
+set -- ${L1#"# kbool image v1 "}
+LN=$1 LP=$2 LV=$3
+for v in "PN:$LN $LN $LV:not an image of format v1" "P1:$LN $(( LP - 1 )) $LV:the image header is incomplete" \
+         "V1:$LN $LP $(( LV - 1 )):the image header is damaged (its variables' line)" "junk:$LN $LP 9 $LV:not an image of format v1"; do
+    id=${v%%:*} v=${v#*:} w=${v#*:} v=${v%%:*}
+    ( umask 077; printf '%s' "${Z/"$L1"$'\n'/"# kbool image v1 $v"$'\n'}" > "$IMG" )
+    uf_run 'source "$FX/kbool.sh"; kk._image_hitlib; kk._image_dbg() { printf "%s\n" "$*" >&2; }; kk.image --path ia 2>&1 >/dev/null | tail -1'
+    [[ $UF_OUT == "--path: $w"* ]]
+    uf_check "line 1 \`# kbool image v1 $v\` ($id): no hit — '$w' [I4 fix 1, L3 L4]" $?
+done
+cp "$FX/img.l1" "$IMG"; rm -f "$FX"/img/*.hold
+
 kt_test_log "024_ImageHolds.sh completed"

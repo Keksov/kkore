@@ -313,9 +313,9 @@ or 256 MB per folder.
 * MSYS2 and Git-bash drop CR bytes when they read code. A function with a CR byte is
   rewritten by kklass when kklass is part of the load; without kklass such a load gets no
   image there. A changed earlier value (chaining) that holds a CR byte is refused.
-* bash 5.2 prints `1<> FILE` as `<> FILE`, which would read back as fd 0. The image
+* bash 5.1 and 5.2 print `1<> FILE` as `<> FILE`, which would read back as fd 0. The image
   writes `1<>` again, checked by reading each such function back; a ` <> ` inside a
-  string fails that check, and that load gets no image on bash 5.2.
+  string fails that check, and that load gets no image there (also when that bash would print fd 0 bare too).
 * On bash 5.1 a function with `&> "$var"` gets no image.
 * A script whose settings make the load set different values every time (pids, random
   values outside the settings hooks) gets no image.

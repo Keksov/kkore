@@ -124,6 +124,40 @@ uf_run 'bash "$FX/st.sh" hit "$FX/s3.d"; bash "$FX/cmp.sh" "$FX/plain.d" "$FX/s3
 uf_check "a syntax error after the end mark: undone (the source fails), a normal load" $?
 cp "$FX/img.full" "$IMG"; cp "$FX/ref.full" "$REFN"; rm -f "$FX"/img/*.hold
 
+# (I4 fix round 1, critic L4) the undo unsets EVERY variable the image
+# created — iun's first one, IUN_A, which the normal load after the undo does
+# not set again (the caller's IUN_SKIP): it must be gone
+if_unit "$FX" iun <<'EOF'
+[[ -n ${IUN_SKIP+x} ]] || IUN_A=1
+IUN_B=2
+iun.f() { echo "a=${IUN_A-unset} b=$IUN_B"; }
+EOF
+touch -t 202001010000 "$FX/kcl/iun/iun.sh"
+uf_run 'source "$FX/kbool.sh"; kk.image iun 2>/dev/null'
+for f in "$FX"/img/iun-*.img; do IUN=$f; done
+IFS= read -r -d '' z < "$IUN" || :
+z=${z%$'\n'}
+printf '%s\n' "${z%$'\n'*}" > "$IUN"            # (the end mark dropped: the start is undone)
+uf_run 'source "$FX/kbool.sh"; IUN_SKIP=1; kk.image iun 2>/dev/null; echo "rc=$? pid=${__KK_UNIT_PID[iun]+normal}"; iun.f'
+[[ $UF_OUT == "rc=0 pid=normal"$'\n'"a=unset b=2" ]]
+uf_check "an undone start: every image variable unset — the first one too, which the normal load then does not set (a=unset) [I4 fix 1, L4]" $?
+rm -f "$FX"/img/iun-*
+
+# (I4 fix round 1, critic L4) a UTF-8 path in the plain header line, started
+# under a UTF-8 locale: the header is cut by BYTE lengths (kk._image__hdr's
+# LC_ALL=C) — the second start is a hit
+U8D="$FX/tü дир"
+mkdir -p "$U8D"
+printf '%s\n' '[[ ${__KK_UNITS[@]@a} == A* ]] || return 2' 'kk.unit iu8 || return $__kk_unit_rc' 'IU8_V=1' > "$U8D/iu8.sh"
+touch -t 202001010000 "$U8D/iu8.sh"
+uf_run 'export LC_ALL=C.UTF-8; source "$FX/kbool.sh"; kk.image "'"$U8D"'/iu8.sh" 2>/dev/null; echo "1 ${__KK_UNIT_PID[iu8]+normal}"'
+A=$UF_OUT
+uf_run 'export LC_ALL=C.UTF-8; source "$FX/kbool.sh"; kk.image "'"$U8D"'/iu8.sh" 2>/dev/null; echo "2 ${__KK_UNIT_PID[iu8]-image} $IU8_V"'
+UF_OUT="$A | $UF_OUT"
+[[ $UF_OUT == "1 normal | 2 image 1" ]]
+uf_check "a request path with UTF-8 bytes (tü дир/iu8.sh) under LC_ALL=C.UTF-8: written, the next start a hit [I4 fix 1, L4]" $?
+rm -f "$FX"/img/iu8-*
+
 # ---------------------------------------------------------------------------
 kt_test_section "022: the written image reads back to the same state (associative keys)"
 
@@ -228,6 +262,12 @@ else
     [[ $B == "miss rc=0 "[0-9]*" file=Xb out= <>  bare"$'\n'"nowrite: bash $BASH_VERSION prints \`1<> FILE\` as \`<> FILE\`"*"does not read back with"*$'\n'"start rc=0 "[0-9]*" file=Xb out= <>  bare"* ]] \
         && compgen -G "$FX/img/irs-*.hold" >/dev/null && ! compgen -G "$FX/img/irs-*.img" >/dev/null
     uf_check "... and with a string \" <> \" as well: the re-print check fails — no image, a hold naming why; the starts are normal loads [I3, I4]" $?
+    # (S3, I4 fix 1: the rewrite only when this bash prints fd 0 as `0<> F`;
+    # __KK_IMG_RWFAKE0 fakes one that prints it bare too: the refusal)
+    uf_run 'source "$FX/kbool.sh"; kk.image --forget irw; __KK_IMG_RWFAKE0=1 bash "$FX/rw.sh" miss irw'
+    [[ $UF_OUT == "miss rc=0 "[0-9]*" file=Xb out= bare"$'\n'"nowrite: bash $BASH_VERSION prints"*"fd 0's"*"cannot be told apart"* ]]
+    uf_check "a bash that would print fd 0's \`0<> FILE\` bare as well (faked): no rewrite, the refusal [I4 fix 1, S3]" $?
+    rm -f "$FX"/img/irw-*.hold
 fi
 unset -f rwp
 
