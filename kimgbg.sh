@@ -386,11 +386,14 @@ kk._imgbg_watch() {
     __kk_ibw_p=$!
     __KK_IMG_BGSP=$__kk_ibw_p     # (a signal to this watcher stops the writer too: kk._imgbg_term)
     __kk_ibw_dl=$(( EPOCHSECONDS + __kk_ibw_l ))
+    # (1-second slices: a trapped signal runs its trap between two reads on
+    # every platform — a read that the system restarts after the signal
+    # would hold the trap until the writer ends; fix round 2)
     while :; do
         __kk_ibw_e=$(( __kk_ibw_dl - EPOCHSECONDS ))
         if (( __kk_ibw_e <= 0 )); then __kk_ibw_r=142; break; fi
-        IFS= read -r -t "$__kk_ibw_e" -u 3 __kk_ibw_x; __kk_ibw_r=$?
-        (( __kk_ibw_r == 0 )) || break
+        IFS= read -r -t 1 -u 3 __kk_ibw_x; __kk_ibw_r=$?
+        (( __kk_ibw_r == 0 || __kk_ibw_r > 128 )) || break      # (EOF: the writer ended)
     done
     if (( __kk_ibw_r > 128 )); then
         kill -TERM "$__kk_ibw_p" 2>/dev/null

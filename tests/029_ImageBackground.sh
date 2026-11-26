@@ -78,18 +78,46 @@ bg_wait() {
     return 1
 }
 # bg_procs -> BG_PROCS: the live processes whose command line holds BG_PAT (a
-# writer, its watchdog, its timeout — also a detached one no marker names;
-# fork-free over /proc; empty without /proc)
+# writer, its watchdog, its timeout — also a detached one no marker names):
+# over /proc where it exists (fork-free), else one `ps -axww -o pid= -o
+# command=` (macOS and FreeBSD ps: BSD options only). BG_NOPROC=1 (a test
+# seam) takes the ps path; on Git-bash / MSYS2 / Cygwin, whose ps prints no
+# arguments, the seam puts a ps shim first on PATH that prints the same
+# columns from /proc (fix round 2). A case that needs the writers counted
+# fails when none is listed.
+BG_PSDIR=""
+if [[ -n ${BG_NOPROC-} ]]; then
+    case $OSTYPE in
+        msys*|cygwin*)
+            BG_PSDIR=$FX/psbin
+            mkdir -p "$BG_PSDIR"
+            printf '%s\n' '#!/usr/bin/env bash' '# a BSD-ps shim for the no-/proc seam: -axww -o pid= -o command=' \
+                'for d in /proc/[0-9]*; do' \
+                '    a=(); { mapfile -t -d "" a < "$d/cmdline"; } 2>/dev/null || continue' \
+                '    (( ${#a[@]} )) && printf "%5s %s\n" "${d#/proc/}" "${a[*]}"' \
+                'done' > "$BG_PSDIR/ps"
+            chmod +x "$BG_PSDIR/ps" ;;
+    esac
+fi
 bg_procs() {
-    local d
+    local d l p
     local -a a=()
     BG_PROCS=()
-    for d in /proc/[0-9]*; do
-        [[ ${d#/proc/} != "$BASHPID" && -r $d/cmdline ]] || continue
-        a=()
-        { mapfile -t -d '' a < "$d/cmdline"; } 2>/dev/null || continue
-        [[ " ${a[*]} " == *"$BG_PAT"* ]] && BG_PROCS+=("${d#/proc/}")
-    done
+    if [[ -z ${BG_NOPROC-} && -d /proc/$BASHPID ]]; then
+        for d in /proc/[0-9]*; do
+            [[ ${d#/proc/} != "$BASHPID" && -r $d/cmdline ]] || continue
+            a=()
+            { mapfile -t -d '' a < "$d/cmdline"; } 2>/dev/null || continue
+            [[ " ${a[*]} " == *"$BG_PAT"* ]] && BG_PROCS+=("${d#/proc/}")
+        done
+        return 0
+    fi
+    while IFS= read -r l; do
+        l=${l#"${l%%[! ]*}"}
+        p=${l%% *}
+        [[ -n $p && $p != *[!0-9]* && $p != "$BASHPID" ]] || continue
+        [[ " ${l#* } " == *"$BG_PAT"* ]] && BG_PROCS+=("$p")
+    done < <(PATH=${BG_PSDIR:+$BG_PSDIR:}$PATH ps -axww -o pid= -o command= 2>/dev/null)
     return 0
 }
 # bg_kill PID PGID SIG — the writer's process group (never this test's own:
@@ -189,8 +217,8 @@ uf_check "the caller's \$(…) returned in $(( T_US / 1000 )) ms while the write
 bg_started "$M"
 uf_check "the writer wrote its pid into the marker NAME.bg" $?
 bg_procs
-[[ ! -d /proc/$BASHPID ]] || [[ " ${BG_PROCS[*]} " == *" $BG_P "* ]]
-uf_check "the guard's /proc scan finds the writer by its command line (where there is /proc)" $?
+[[ " ${BG_PROCS[*]} " == *" $BG_P "* ]]; r=$?; UF_OUT="listed: ${BG_PROCS[*]:-none}"; (exit $r)
+uf_check "the guard's process lister (/proc, else ps) finds the writer by its command line" $?
 P=$BG_P O=$BG_O
 if [[ -d /proc/$P/fd ]]; then
     ok=0 bad=""
@@ -268,8 +296,19 @@ bg_started "$M"
 bg_wait "$M" 30
 r=$?
 R=$(cat "${M%.bg}.hold" 2>/dev/null)
-(( r == 0 )) && [[ $R == *" a background writer was stopped (TERM)" ]] && (( EPOCHSECONDS - ${R%% *} >= 2990 ))
-uf_check "the limit (__KK_IMG_BGLIMIT=2 s, the timeout tool): the writer and its children stopped, its marker removed, a hold of 10 minutes" $?
+# (the product's own choice: a timeout tool next to $BASH on the Windows
+# runtimes, else on PATH — without one, e.g. stock macOS, the watch mode)
+HAS_TO=0
+case $OSTYPE in
+    msys*|cygwin*) [[ -f ${BASH%/*}/timeout || -f ${BASH%/*}/timeout.exe ]] && HAS_TO=1 ;;
+    *) type -P timeout >/dev/null 2>&1 && HAS_TO=1 ;;
+esac
+if (( HAS_TO )); then RW="a background writer was stopped (TERM)" LW="the timeout tool"
+else RW="a background writer timed out after 2 s" LW="no timeout tool here: the watch mode"; fi
+rw=$r
+(( rw == 0 )) && [[ $R == *" $RW" ]] && (( EPOCHSECONDS - ${R%% *} >= 2990 )); r=$?
+UF_OUT="wait=$( (( rw == 0 )) && echo ok || echo timeout) hold=[$R] marker=$([[ -e $M ]] && echo left || echo gone)"; (exit $r)
+uf_check "the limit (__KK_IMG_BGLIMIT=2 s, $LW): the writer stopped, its marker removed, a hold of 10 minutes ($RW)" $?
 rm -f "$IMGD"/*
 
 uf_run "$H"'; export __KK_IMG_BGNOTOOLS=1 __KK_IMG_BGPAUSE=20 __KK_IMG_BGLIMIT=2; kk.image --background ia 2>/dev/null'
@@ -430,7 +469,8 @@ kill -TERM "$P" 2>/dev/null
 n=50; while (( n-- > 0 )); do bg_procs; (( ${#BG_PROCS[@]} == 0 )) && break; sleep 0.1; done
 n1=${#BG_PROCS[@]}
 R=$(cat "${M%.bg}.hold" 2>/dev/null)
-[[ ! -e $M && $R == *" a background writer was stopped (TERM)" ]] && (( n0 >= 2 || n0 == 0 )) && (( n1 == 0 )) && ! kill -0 "$P" 2>/dev/null
+[[ ! -e $M && $R == *" a background writer was stopped (TERM)" ]] && (( n0 >= 2 )) && (( n1 == 0 )) && ! kill -0 "$P" 2>/dev/null; r=$?
+UF_OUT="before=$n0 after=$n1 hold=[$R] marker=$([[ -e $M ]] && echo left || echo gone) watcher=$(kill -0 "$P" 2>/dev/null && echo alive || echo gone)"; (exit $r)
 uf_check "watch mode: TERM to the watcher stops its inner writer too ($n0 writer processes before, $n1 within 5 s after), marker removed, a 10-minute hold [L2]" $?
 bg_guard; BG_LEFT=""                   # (anything left of that case: stopped here, reported above)
 rm -f "$IMGD"/*
