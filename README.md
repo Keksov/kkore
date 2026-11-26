@@ -326,8 +326,12 @@ or 256 MB per folder.
 there, and the file checks cannot tell on these runtimes. On a shared machine set
 `KBOOL_IMAGE_DIR` to a folder only you can write, or `KBOOL_IMAGE=off`.
 
-**Cost.** See the benchmarks (`tools/bench`, the `image` suite): a start through an
-image, the checks alone, a first start that writes the image.
+**Cost.** Measured on GitHub's Linux runners for `fv.dlg` with its dependencies. A start
+through an image takes about a fifth of a plain load: 0.13–0.15 s instead of about 0.6 s.
+The checks take about 25–30 ms of that. With a `kk.uses` before it, an image start adds
+about as much as an unchained one. The first start, which loads normally and writes the
+image, takes 4–5 s. The times move with the machine; the ratios stay. To measure on your
+machine, run the `image` suite of `tools/bench`.
 
 ### Variables
 
