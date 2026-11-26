@@ -22,6 +22,11 @@
 #   icr   a function whose text holds a CR byte ($'\r')
 #   iin   calls `kk.image ib` inside its own load (not applicable there)
 #   iro   a readonly constant IRO_C guarded per name
+#   iuv   variables declared without a value (an associative and an indexed
+#         array, an integer, a scalar: `declare -gA IUV_A` …) and iuv.f, which
+#         uses them (image I3: compgen -v does not list such variables)
+#   irw   irw.f FILE: writes ab, then X over its first byte through `1<>`
+#         (image I3: bash 5.2 prints `1<> F` as `<> F`, fd 0 when read back)
 # Helpers in DIR: dump.sh FILE (kk._img_state FILE canon, in the child's
 # state), cmp.sh A B (kk._img_cmp A B set with the documented allow-list:
 # prints `cmp rc=N DIFF`).
@@ -103,6 +108,16 @@ EOF
     if_unit "$fx" iin <<'EOF'
 kk.image ib
 IIN_RC=$?
+EOF
+    if_unit "$fx" iuv <<'EOF'
+declare -gA IUV_A
+declare -ga IUV_X
+declare -gi IUV_N
+declare -g IUV_S
+iuv.f() { IUV_A[key]=v; IUV_N+=7; IUV_N+=1; echo "A=${IUV_A[key]-} N=$IUV_N kind=${IUV_A@a}"; }
+EOF
+    if_unit "$fx" irw <<'EOF'
+irw.f() { printf ab > "$1"; printf X 1<> "$1"; }
 EOF
     if_unit "$fx" iro <<'EOF'
 [[ -n ${IRO_C+x} ]] || declare -gr IRO_C=1

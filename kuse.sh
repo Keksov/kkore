@@ -223,7 +223,8 @@
 # the start) writes the local, and the base check reads the local (equal):
 # once the function returns, a hit leaves the global as it was. VERBOSE_KKLASS=debug prints a `kbool:
 # image: …` line for every reason. An image holds this call's units: their
-# functions, the variables they created (readonly flags last), their kklass
+# functions, the variables they created (readonly flags last; one declared
+# without a value — `declare -gA X` — declared again without one), their kklass
 # tables and their kkore registration (last, with the earlier value of every
 # pre-existing slot it changes: kkore's; chained, P's too), its dependency
 # edges (also a dependency NOT found,
@@ -250,7 +251,9 @@
 # job or a coprocess; leaves a file descriptor open or closes one (kklass's
 # pair excepted); a stamped file has a future mtime (or, stat, ctime); a
 # function holds a CR byte this parser drops that kklass's kk._fn_text_cr
-# cannot rewrite; bash < 5.2 and a function text with `&> "$` (IMG-D9); or
+# cannot rewrite; bash < 5.2 and a function text with `&> "$` (IMG-D9); a
+# bash whose declare -f prints `1<> FILE` as `<> FILE` (5.2: it reads back as
+# fd 0; probed) and a function text with ` <> ` (kcl tfile there); or
 # (unchained) a unit was used (or forgotten) before in this shell. Not compared: resource
 # limits (ulimit), the directory stack.
 # A damaged image is undone and loaded normally — but a flipped byte that

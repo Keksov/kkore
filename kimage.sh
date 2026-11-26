@@ -159,7 +159,8 @@ declare -gA __KK_IMG_RT=()
 # quoting `declare -p` picks depends on the locale), into FILE (and the
 # scratch files FILE.pre, FILE.raw). Sections:
 #   @@V every variable with its attributes (`declare -p` of the names
-#       `compgen -v` lists); the caller's IFS and LC_ALL first (taken before
+#       `compgen -v` lists, and of those declared without a value:
+#       kk._img__inv); the caller's IFS and LC_ALL first (taken before
 #       this function's locals shadow them). With `canon`, every associative
 #       array is one `declare -A… NAME` line plus one `NAME[KEY]=VALUE` line
 #       per element (%q), so that two processes that built one table in
@@ -213,6 +214,10 @@ kk._img__dump() {
         compgen -v > "$__kk_imd_f.raw"
         read -r -N 268435456 __kk_imd_z < "$__kk_imd_f.raw" || :
         __kk_imd_v=($__kk_imd_z)
+        # (and the variables declared but never assigned — `declare -gA X`
+        # with no element: compgen -v does not list them, and a start
+        # without them makes `X[name]=1` an INDEXED array; image I3)
+        kk._img__inv "$__kk_imd_f.raw" __kk_imd_v
         for __kk_imd_x in "${__kk_imd_v[@]}"; do
             [[ $__KK_IMG_SKIP == *" $__kk_imd_x "* || $__kk_imd_x == __kk_im* || $__kk_imd_x == __KK_IMG_* \
                || $__kk_imd_x == IFS || $__kk_imd_x == LC_ALL ]] && continue
@@ -271,6 +276,35 @@ kk._img__dump() {
         umask
     } > "$__kk_imd_f"
 }
+# kk._img__inv FILE ARRAY — append to ARRAY the names of the variables that
+# are declared but were never assigned (`declare -gA X`, `declare -gi N`,
+# `declare -g S` with no value): `compgen -v` lists only variables with a
+# value. One full `declare -p` into FILE (FILE overwritten), its records
+# without a value: a line `declare -FLAGS NAME` with no `=` (bash quotes a
+# newline in a value as $'…': a record is one line). Bash's own (COMP_WORDBREAKS,
+# OLDPWD, the dynamic variables before their first read: __KK_IMG_BASHV) are
+# left out. Fork-free; ~70 ms after fv.dlg's load on the laptop (565 KB).
+# (Image I3: without it the writer left such variables out of an image and
+# the dump out of every compare — fv.views' `declare -gA __FV_VW_LIVE …`,
+# kklass's TX_lazy_inits / TX_computed_getters / TX_method_cache: after an
+# image start `__FV_VW_LIVE[$name]=1` made an indexed array and every view a
+# "live view".)
+kk._img__inv() {
+    local - LC_ALL=C IFS=$'\n' __kk_imv_z="" __kk_imv_l
+    local -a __kk_imv_a=()
+    local -n __kk_imv_o=$2
+    set -f
+    declare -p > "$1" 2>/dev/null || :
+    read -r -N 268435456 __kk_imv_z < "$1" || :
+    __kk_imv_a=($__kk_imv_z)
+    for __kk_imv_l in "${__kk_imv_a[@]}"; do
+        [[ $__kk_imv_l == 'declare -'* && ${__kk_imv_l:0:512} != *=* ]] || continue
+        __kk_imv_l=${__kk_imv_l##* }
+        [[ $__kk_imv_l == [A-Za-z_]* && $__kk_imv_l != *[!A-Za-z0-9_]* && $__KK_IMG_BASHV != *" $__kk_imv_l "* ]] || continue
+        __kk_imv_o+=("$__kk_imv_l")
+    done
+}
+
 # kk._img__dumpa — kk._img__dump's associative arrays (__kk_imd_an), canon:
 # a header line, then one NAME[KEY]=VALUE line per element (%q).
 kk._img__dumpa() {
@@ -340,11 +374,20 @@ kk._img__xcmp() {
         __kk_imx_lb=($__kk_imx_q)
         if [[ $__kk_imx_s == F && $__kk_imx_p$__kk_imx_q == *"$__kk_imx_cr"* ]]; then
             # a function text kk._fn_text_cr rewrote prints a CR as ''<CR>''
-            # (the same word) once defined from it: compared as <CR>
-            __kk_imx_la=("${__kk_imx_la[@]//"$__kk_imx_cq"/$__kk_imx_cr}")
-            __kk_imx_lb=("${__kk_imx_lb[@]//"$__kk_imx_cq"/$__kk_imx_cr}")
-            printf -v __kk_imx_p '%s\n' "${__kk_imx_la[@]}"
-            printf -v __kk_imx_q '%s\n' "${__kk_imx_lb[@]}"
+            # (the same word) once defined from it, and each further round
+            # trip adds one '' pair: compared as <CR>, the pairs taken off
+            # until none is left (as kk._img__explain does; image I3: kklass
+            # defines tpath.__static_getGUIDFileName from a rewritten text, so
+            # the writer's load prints '''<CR>''' and the fresh process's start
+            # '''''<CR>''''' — a single pass left them apart, and every chained
+            # image of tpath, tfile, tdirectory was refused on the CR-dropping
+            # parsers)
+            while [[ $__kk_imx_p == *"$__kk_imx_cq"* || $__kk_imx_q == *"$__kk_imx_cq"* ]]; do
+                __kk_imx_la=("${__kk_imx_la[@]//"$__kk_imx_cq"/$__kk_imx_cr}")
+                __kk_imx_lb=("${__kk_imx_lb[@]//"$__kk_imx_cq"/$__kk_imx_cr}")
+                printf -v __kk_imx_p '%s\n' "${__kk_imx_la[@]}"
+                printf -v __kk_imx_q '%s\n' "${__kk_imx_lb[@]}"
+            done
             [[ $__kk_imx_p != "$__kk_imx_q" ]] || continue
         fi
         case $__kk_imx_s in
@@ -1919,7 +1962,7 @@ kk._img__after() {
     if [[ -n $__kk_imw_t ]]; then
         for __kk_ima_x in sh0 sh1 v0 v0f v1f k0 k1 m1 m1o m1c m1f m1o.v0 m1o.v1 m1o.why m1o.sim m1o.sim.n m1o.sim.pre \
                           m1o.sim.raw m1o.sim.V m1o.sim.A m1o.sim.F m1o.sim.X m1o.sim.S m1o.ht \
-                          end.V end.A end.F end.X end.S f0 f1 ft0 ft1 n1 fn end end.n end.pre end.raw sim sim.pre sim.raw diff ref img tr0 tr1; do
+                          end.V end.A end.F end.X end.S f0 f1 ft0 ft1 n1 fn rw end end.n end.pre end.raw sim sim.pre sim.raw diff ref img tr0 tr1; do
             __kk_ima_f+=("$__kk_imw_t.$__kk_ima_x")
         done
     fi
@@ -2007,7 +2050,7 @@ kk._img__build() {
     local -a __kk_imk_a=() __kk_imk_ks=() __kk_imk_units=() __kk_imk_cls=() __kk_imk_nv=() __kk_imk_ro=() \
           __kk_imk_nf=() __kk_imk_base=() __kk_imk_reg=() __kk_imk_hooks=() __kk_imk_edges=() __kk_imk_files=() \
           __kk_imk_rf=() __kk_imk_dtxt=() __kk_imk_c1=()
-    local -A __kk_imk_nu=() __kk_imk_hv=() __kk_imk_post=() __kk_imk_seen=() __kk_imk_pu=()
+    local -A __kk_imk_nu=() __kk_imk_hv=() __kk_imk_post=() __kk_imk_seen=() __kk_imk_pu=() __kk_imk_inv=()
     # chained (§7.7): units were loaded before (the prior set P, kimghit.sh
     # kk._image_prior): the image holds this call's delta, deltas on the
     # pre-existing slots it changed included, checked by a fresh process
@@ -2065,14 +2108,23 @@ kk._img__build() {
     if (( ${#__kk_imw_kn[@]} )); then declare -p "${__kk_imw_kn[@]}" > "$__kk_imw_t.k1" 2>/dev/null; else : > "$__kk_imw_t.k1"; fi
     read -r -N 268435456 __kk_imk_kk < "$__kk_imw_t.k1" || :
     if [[ $__kk_imk_kk != "$__kk_imw_k0" ]]; then __kk_imw_why="the load changed a kkore table other than the unit registry"; return 1; fi
-    # the variables the load created
+    # the variables the load created — also those it declared without a
+    # value (`declare -gA X`: compgen -v does not list them; kk._img__inv,
+    # image I3), held as declared (no value: kk._img__text)
     compgen -v > "$__kk_imw_t.n1"
     kk._img__split "$__kk_imw_t.n1" __kk_imk_a
+    __kk_imk_y=${#__kk_imk_a[@]}
+    kk._img__inv "$__kk_imw_t.n1" __kk_imk_a
+    for __kk_imk_x in "${__kk_imk_a[@]:__kk_imk_y}"; do __kk_imk_inv[$__kk_imk_x]=1; done
     for __kk_imk_x in "${__kk_imk_a[@]}"; do
         [[ -z ${__kk_imw_pre[$__kk_imk_x]+x} && -z ${__kk_imk_hv[$__kk_imk_x]-} ]] || continue
         [[ $__KK_IMG_SKIP == *" $__kk_imk_x "* || $__KK_IMG_NEVER == *" $__kk_imk_x "* || $__kk_imk_x == __kk_im* \
            || $__kk_imk_x == __KK_IMG_* ]] && continue
+        # (a kkore frame local without a value — this function's own __kk_n —
+        # is listed by declare -p, never a unit's state: kkore reserves __kk_)
+        [[ -n ${__kk_imk_inv[$__kk_imk_x]-} && $__kk_imk_x == __kk_* ]] && continue
         __kk_imk_y=${!__kk_imk_x@a}
+        if [[ -n ${__kk_imk_inv[$__kk_imk_x]-} ]]; then __kk_imk_y="$__kk_imk_x[@]"; __kk_imk_y=${!__kk_imk_y@a}; fi    # (${!X@a} is empty for a variable without a value)
         if [[ ! -R $__kk_imk_x && $__kk_imk_y == *x* ]]; then
             __kk_imw_why="the load exported $__kk_imk_x outside the settings hooks"; return 1
         fi
@@ -2437,6 +2489,17 @@ kk._img__loop() {
 }
 
 # kk._img__text — the image text into __kk_imw_P (kk._img__build's lists).
+# kk._img__rwbug — rc 0 when this bash's `declare -f` prints `1<> FILE` as
+# `<> FILE` (bash 5.2; 5.3 prints `1<>`, and `<>` for fd 0): the text would
+# read back as fd 0. One eval and one declare -f into the writer's temp file.
+kk._img__rwbug() {
+    local __kk_imr_t=""
+    eval '__kk_im_rwprobe() { : 1<> /dev/null; }'
+    declare -f __kk_im_rwprobe > "$__kk_imw_t.rw" 2>/dev/null
+    unset -f __kk_im_rwprobe
+    read -r -N 4096 __kk_imr_t < "$__kk_imw_t.rw" || :
+    [[ $__kk_imr_t != *'1<>'* ]]
+}
 kk._img__text() {
     local LC_ALL=C IFS=$'\n' __kk_imj_s __kk_imj_x __kk_imj_at __kk_imj_fl __kk_imj_l0 __kk_imj_l1 __kk_imj_l2 \
           __kk_imj_l3 __kk_imj_l4 __kk_imj_fn="" __kk_imj_cr __kk_imj_c __kk_imj_p __kk_imj_w=$EPOCHSECONDS __kk_imj_n=0
@@ -2452,6 +2515,13 @@ kk._img__text() {
     # bash < 5.2 prints `>&"$fd"` as `&> "$fd"` (IMG-D9): no image of such a text
     if kk._img_oldbash && [[ $__kk_imj_fn == *'&> "$'* || $__kk_imj_fn == *'&>"$'* ]]; then
         __kk_imw_why="bash $BASH_VERSION (< 5.2) and a function text with &> \"\$ (IMG-D9)"; return 1
+    fi
+    # bash 5.2 prints `1<> FILE` as `<> FILE`, which reads back as fd 0 (image
+    # I3, kcl 010 on Cygwin 5.2: TFile.encrypt's `printf … 1<> "$tmp"` became
+    # a write to stdin); probed, not by version: a text with ` <> ` (a
+    # redirection with its default fd, or such a literal) gets no image
+    if [[ $__kk_imj_fn == *' <> '* ]] && kk._img__rwbug; then
+        __kk_imw_why="bash $BASH_VERSION prints \`1<> FILE\` as \`<> FILE\` (fd 0 when read back): no image of a function text with \` <> \`"; return 1
     fi
     printf -v __kk_imj_cr '\r'
     if [[ $__kk_imj_fn == *"$__kk_imj_cr"* ]]; then
@@ -2524,8 +2594,14 @@ kk._img__text() {
                 (( __kk_imj_p == 0 )) || continue
             fi
             __kk_imj_at=${!__kk_imj_x@a}
+            if [[ -n ${__kk_imk_inv[$__kk_imj_x]-} ]]; then __kk_imj_at="$__kk_imj_x[@]"; __kk_imj_at=${!__kk_imj_at@a}; fi
             __kk_imj_fl=${__kk_imj_at//[aAnrx]/}
-            if [[ -R $__kk_imj_x ]]; then
+            if [[ -n ${__kk_imk_inv[$__kk_imj_x]-} ]]; then
+                # declared, never assigned (kk._img__inv): declared again
+                # without a value — an empty `X=()` would be another state
+                # (listed, set under nounset)
+                __kk_imw_P+=("declare -g${__kk_imj_at//[rx]/} $__kk_imj_x"$'\n')
+            elif [[ -R $__kk_imj_x ]]; then
                 eval '__kk_imj_s=${!'"$__kk_imj_x"'}'
                 printf -v __kk_imj_s 'declare -gn%s %s=%q\n' "$__kk_imj_fl" "$__kk_imj_x" "$__kk_imj_s"
                 __kk_imw_P+=("$__kk_imj_s")

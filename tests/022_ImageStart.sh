@@ -146,6 +146,64 @@ IFS= read -r -d '' z < "$IAK" || :
    && $z != *'IAK_M[@]='* && $z != *'IAK_M[\*]='* ]]
 uf_check "keys that are not plain go through the loop form (never \`X[@]=\` / \`X[\\*]=\` in the image)" $?
 
+# variables declared without a value (image I3, found by kcl 011: fv.views'
+# `declare -gA __FV_VW_LIVE …` and kklass's class tables): compgen -v does
+# not list them — the writer left them out of the image and the dump out of
+# every compare, so after a hit `IUV_A[key]=v` made an INDEXED array (fv.dlg:
+# every view a "live view") and `IUV_N+=7` a string append. The hit declares
+# them again without a value: the same kinds and attributes, still no value
+# (listed by the dump: kk._img__inv), and the first use works as after a
+# normal load
+cat > "$FX/uv.sh" <<'EOF'
+source "$FX/kbool.sh" || exit 9
+if [[ $1 == plain ]]; then KBOOL_IMAGE=off kk.image iuv; else kk.image iuv; fi
+r=$?
+echo "$1 rc=$r ${__KK_UNIT_PID[iuv]-image} $(declare -p IUV_A IUV_X IUV_N IUV_S | tr '\n' '|')"
+kk._image_lib || exit 9     # (kimghit.sh + kimage.sh: the same functions in both dumps)
+unset r
+kk._img_state "$2" canon
+iuv.f
+EOF
+uf_run 'bash "$FX/uv.sh" miss "$FX/uv0.d"; bash "$FX/uv.sh" hit "$FX/uv1.d"; bash "$FX/uv.sh" plain "$FX/uv2.d"; bash "$FX/cmp.sh" "$FX/uv2.d" "$FX/uv1.d"'
+W='declare -A IUV_A|declare -a IUV_X|declare -i IUV_N|declare -- IUV_S|'$'\n''A=v N=8 kind=A'
+[[ $UF_OUT == "miss rc=0 "?*" $W"$'\n'"hit rc=0 image $W"$'\n'"plain rc=0 "?*" $W"$'\n'"cmp rc=0 " && $UF_OUT != "miss rc=0 image"* ]]
+uf_check "variables declared without a value (declare -gA / -ga / -gi / -g): a hit declares them again without a value (the same kinds and attributes; a normal load's state, the dump lists them), and the first use makes an associative array and integer arithmetic as after a normal load [I3]" $?
+for f in "$FX"/img/iuv-*.img; do IUV=$f; done
+IFS= read -r -d '' z < "$IUV" || :
+[[ $z == *$'\n''declare -gA IUV_A'$'\n'* && $z == *$'\n''declare -gi IUV_N'$'\n'* && $z == *$'\n''declare -ga IUV_X'$'\n'* \
+   && $z == *$'\n''declare -g IUV_S'$'\n'* && $z != *'IUV_A=()'* ]]
+uf_check "(the image declares them without a value, never as an empty \`X=()\`)" $?
+
+# `1<> FILE` (image I3, found by kcl 010 on Cygwin bash 5.2: TFile.encrypt):
+# bash 5.2's declare -f prints it as `<> FILE`, which reads back as fd 0 — an
+# image would write to stdin. Probed (kk._img__rwbug): such a bash writes no
+# image (a hold, the reason named), any other one writes it and its start
+# keeps `1<>`; irw.f's file is "Xb" after a hit and after a normal load
+cat > "$FX/rw.sh" <<'EOF'
+source "$FX/kbool.sh" || exit 9
+VERBOSE_KKLASS=debug
+kk.image irw 2>"$FX/rw.err"
+r=$?
+irw.f "$FX/rw.dat" > "$FX/rw.out"
+IFS= read -r d < "$FX/rw.dat"
+f=$(declare -f irw.f)
+case $f in *" 1<> "*) k=fd1 ;; *" 0<> "*) k=fd0 ;; *" <> "*) k=bare ;; *) k=? ;; esac
+echo "$1 rc=$r ${__KK_UNIT_PID[irw]-image} file=$d out=$(< "$FX/rw.out") $k"
+w=""; while IFS= read -r l; do case $l in *"no image written: "*) w="nowrite: ${l#*no image written: }" ;; *"image: wrote "*) w=wrote ;; *"loaded from "*) w=loaded ;; esac; done < "$FX/rw.err"
+echo "$w"
+EOF
+uf_run 'bash "$FX/rw.sh" miss; bash "$FX/rw.sh" start'
+eval 'rwp() { : 1<> /dev/null; }'
+if [[ $(declare -f rwp) == *'1<>'* ]]; then
+    [[ $UF_OUT == "miss rc=0 "[0-9]*" file=Xb out= fd1"$'\n'"wrote"$'\n'"start rc=0 image file=Xb out= fd1"$'\n'"loaded" ]]
+    uf_check "a function with \`1<> FILE\` on a bash that prints it back: the image keeps \`1<>\`, irw.f writes over its file after a hit as after a normal load [I3]" $?
+else
+    [[ $UF_OUT == "miss rc=0 "[0-9]*" file=Xb out= bare"$'\n'"nowrite: bash $BASH_VERSION prints \`1<> FILE\` as \`<> FILE\`"*$'\n'"start rc=0 "[0-9]*" file=Xb out= bare"* ]] \
+        && compgen -G "$FX/img/irw-*.hold" >/dev/null && ! compgen -G "$FX/img/irw-*.img" >/dev/null
+    uf_check "a function with \`1<> FILE\` on a bash that prints it as \`<> FILE\` (5.2): no image, a hold naming why; the starts are normal loads, irw.f writes over its file [I3]" $?
+fi
+unset -f rwp
+
 # ---------------------------------------------------------------------------
 kt_test_section "022: hooks on start (§5.2, §8.3; the hook-run guard, I1a L9)"
 
