@@ -81,14 +81,15 @@ fake old-b2222222.img $(( N - 29 * 86400 ))
 printf 'garbage\n' > "$FX/img/junk-a1111111.img"
 fake gone-a1111111.img $(( N - 31 * 86400 )); : > "$FX/img/gone-a1111111.ref"; printf '%s x\n' "$N" > "$FX/img/gone-a1111111.hold"
 : > "$FX/img/orphan-a1111111.ref"
+: > "$FX/img/orphan-a1111111.vck"; : > "$FX/img/old-b2222222.vck"; : > "$FX/img/old-a1111111.vck"
 printf '%s young\n' $(( N - 60 )) > "$FX/img/young-a1111111.hold"
 printf '%s old\n' $(( N - 4000 )) > "$FX/img/oldhold-a1111111.hold"
 : > "$FX/calls"
 uf_run "$H"'; PATH="$FX/lb:$PATH"; kk.image --rebuild ib; echo "rc=$?"'
 left 'home-*' 'old-*' 'junk-*' 'gone-*' 'orphan-*' 'young-*' 'oldhold-*'
 R=$(grep -c '^rm$' "$FX/calls")
-[[ $UF_OUT == "rc=0" && $LEFT == "home-b2222222.img old-b2222222.img young-a1111111.hold" && $R == 1 ]]
-uf_check "one write prunes: a gone KBOOL_HOME (this runtime's tag only), > 30 days, unreadable, the .ref/.hold of a pruned image, an orphan .ref, a hold > 1 h — with ONE rm ($R)" $?
+[[ $UF_OUT == "rc=0" && $LEFT == "home-b2222222.img old-b2222222.img old-b2222222.vck young-a1111111.hold" && $R == 1 ]]
+uf_check "one write prunes: a gone KBOOL_HOME (this runtime's tag only), > 30 days, unreadable, the .ref/.hold/.vck of a pruned image, an orphan .ref or .vck (I4), a hold > 1 h — with ONE rm ($R)" $?
 rm -f "$FX"/img/home-* "$FX"/img/old-* "$FX"/img/young-*
 
 for i in 1 2 3 4 5 6 7 8 9 10; do fake "zz-0000000$(( i % 10 )).img" $(( N - 1000 + i )); done
@@ -159,7 +160,8 @@ left 'ia-*' '*.tmp.*'
 B=$LEFT
 uf_run "$H"'; kk.image --path ia >/dev/null; echo "path=$?"'
 for f in "$FX"/img/ia-*.img; do if_pfield "$f" 7; done
-[[ $A == 'w rc=0 ia.f a b "q" $x 4 v 2 7'$'\n''w rc=0 ia.f a b "q" $x 4 v 2 7' && $B == "ia-"*".$IF_F.ref ia-"*".img" && $UF_OUT == "path=0" ]]
+[[ $A == 'w rc=0 ia.f a b "q" $x 4 v 2 7'$'\n''w rc=0 ia.f a b "q" $x 4 v 2 7' && $UF_OUT == "path=0" \
+   && ( $B == "ia-"*".$IF_F.ref ia-"*".img" || $B == "ia-"*".$IF_F.ref ia-"*".img ia-"*".vck" ) ]]   # (bash < 5.3: its NAME.vck too, I4)
 uf_check "two writers at once: both loads fine, one image and its own NAME.NONCE.ref left (the last rename wins; the other .ref pruned), no temp; the next start hits — no miss (critic L3)" $?
 
 for f in "$FX"/img/ia-*.img; do IMG=$f; done

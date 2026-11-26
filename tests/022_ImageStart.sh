@@ -97,7 +97,8 @@ for REFN in "${IMG%.img}".*.ref; do :; done     # (NAME.NONCE.ref)
 cp "$IMG" "$FX/img.full"; cp "$REFN" "$FX/ref.full"
 SZ=$(( $(wc -c < "$IMG") ))
 IFS= read -r L1 < "$IMG"
-HL=$(( ${#L1} + 1 + ${L1##* } ))          # line 1 + the header it measures
+L1=${L1#"# kbool image v1 "}
+HL=$(( ${#L1} + 18 + ${L1%% *} + ${L1##* } ))   # line 1 + the header it measures + the variables' line (`N P V`, I4)
 for cut in body last; do
     # (a cut inside the header is another case: a miss, the image written again;
     # the image is new: undone, then a hold and the image removed — 024)
@@ -186,31 +187,47 @@ uf_check "(the image declares them without a value — the nameref as one —, n
 
 # `1<> FILE` (image I3, found by kcl 010 on Cygwin bash 5.2: TFile.encrypt):
 # bash 5.2's declare -f prints it as `<> FILE`, which reads back as fd 0 — an
-# image would write to stdin. Probed (kk._img__rwbug): such a bash writes no
-# image (a hold, the reason named), any other one writes it and its start
-# keeps `1<>`; irw.f's file is "Xb" after a hit and after a normal load
+# image would write to stdin. Probed (kk._img__rwbug): such a bash (it prints
+# fd 0 as `0<> FILE`) writes the image with ` 1<> ` where the text says
+# ` <> `, when every such function reads back right (a re-print check,
+# kk._img__rwfix; I4 — before, no image); any other bash writes it as it is.
+# Either way the start keeps fd 1: irw.f's file is "Xb" after a hit and after
+# a normal load. irs.f also prints a string " <> ": on such a bash the check
+# fails (the string would change) — no image, a hold naming why (the
+# refusal of I3); elsewhere an image
 cat > "$FX/rw.sh" <<'EOF'
+# rw.sh ROLE UNIT
 source "$FX/kbool.sh" || exit 9
 VERBOSE_KKLASS=debug
-kk.image irw 2>"$FX/rw.err"
+kk.image "$2" 2>"$FX/rw.err"
 r=$?
-irw.f "$FX/rw.dat" > "$FX/rw.out"
+"$2.f" "$FX/rw.dat" > "$FX/rw.out"
 IFS= read -r d < "$FX/rw.dat"
-f=$(declare -f irw.f)
-case $f in *" 1<> "*) k=fd1 ;; *" 0<> "*) k=fd0 ;; *" <> "*) k=bare ;; *) k=? ;; esac
-echo "$1 rc=$r ${__KK_UNIT_PID[irw]-image} file=$d out=$(< "$FX/rw.out") $k"
+f=$(declare -f "$2.f")
+case $f in *"X 1<> "*) k=fd1 ;; *"X 0<> "*) k=fd0 ;; *"X <> "*) k=bare ;; *) k=? ;; esac
+echo "$1 rc=$r ${__KK_UNIT_PID[$2]-image} file=$d out=$(< "$FX/rw.out") $k"
 w=""; while IFS= read -r l; do case $l in *"no image written: "*) w="nowrite: ${l#*no image written: }" ;; *"image: wrote "*) w=wrote ;; *"loaded from "*) w=loaded ;; esac; done < "$FX/rw.err"
 echo "$w"
 EOF
-uf_run 'bash "$FX/rw.sh" miss; bash "$FX/rw.sh" start'
+uf_run 'bash "$FX/rw.sh" miss irw; bash "$FX/rw.sh" start irw'
+A=$UF_OUT
+uf_run 'bash "$FX/rw.sh" miss irs; bash "$FX/rw.sh" start irs'
+B=$UF_OUT
+UF_OUT="$A | $B"
 eval 'rwp() { : 1<> /dev/null; }'
 if [[ $(declare -f rwp) == *'1<>'* ]]; then
-    [[ $UF_OUT == "miss rc=0 "[0-9]*" file=Xb out= fd1"$'\n'"wrote"$'\n'"start rc=0 image file=Xb out= fd1"$'\n'"loaded" ]]
-    uf_check "a function with \`1<> FILE\` on a bash that prints it back: the image keeps \`1<>\`, irw.f writes over its file after a hit as after a normal load [I3]" $?
+    [[ $A == "miss rc=0 "[0-9]*" file=Xb out= fd1"$'\n'"wrote"$'\n'"start rc=0 image file=Xb out= fd1"$'\n'"loaded" \
+       && $B == "miss rc=0 "[0-9]*" file=Xb out= <>  fd1"$'\n'"wrote"$'\n'"start rc=0 image file=Xb out= <>  fd1"$'\n'"loaded" ]]
+    uf_check "a function with \`1<> FILE\` on a bash that prints it back: the image keeps \`1<>\` (a string \" <> \" too), the function writes over its file after a hit as after a normal load [I3, I4]" $?
 else
-    [[ $UF_OUT == "miss rc=0 "[0-9]*" file=Xb out= bare"$'\n'"nowrite: bash $BASH_VERSION prints \`1<> FILE\` as \`<> FILE\`"*$'\n'"start rc=0 "[0-9]*" file=Xb out= bare"* ]] \
-        && compgen -G "$FX/img/irw-*.hold" >/dev/null && ! compgen -G "$FX/img/irw-*.img" >/dev/null
-    uf_check "a function with \`1<> FILE\` on a bash that prints it as \`<> FILE\` (5.2): no image, a hold naming why; the starts are normal loads, irw.f writes over its file [I3]" $?
+    for f in "$FX"/img/irw-*.img; do IRW=$f; done
+    IFS= read -r -d '' z < "$IRW" || :
+    [[ $A == "miss rc=0 "[0-9]*" file=Xb out= bare"$'\n'"wrote"$'\n'"start rc=0 image file=Xb out= bare"$'\n'"loaded" \
+       && $z == *'printf X 1<> "$1"'* && $z != *'printf X <> '* ]]
+    uf_check "a function with \`1<> FILE\` on a bash that prints it as \`<> FILE\` (5.2): the image says \` 1<> \` (re-print checked), the start is a hit, irw.f writes over its file — not to stdin [I4]" $?
+    [[ $B == "miss rc=0 "[0-9]*" file=Xb out= <>  bare"$'\n'"nowrite: bash $BASH_VERSION prints \`1<> FILE\` as \`<> FILE\`"*"does not read back with"*$'\n'"start rc=0 "[0-9]*" file=Xb out= <>  bare"* ]] \
+        && compgen -G "$FX/img/irs-*.hold" >/dev/null && ! compgen -G "$FX/img/irs-*.img" >/dev/null
+    uf_check "... and with a string \" <> \" as well: the re-print check fails — no image, a hold naming why; the starts are normal loads [I3, I4]" $?
 fi
 unset -f rwp
 

@@ -97,7 +97,9 @@
 # alias table variables.
 #
 # The format v1 (order matters for the undo):
-#   # kbool image v1 N                               N = the byte length of the header lines below
+#   # kbool image v1 N P V                           N = the byte length of the header lines below
+#                                                    (to the base list), P = the plain line's,
+#                                                    V = the variables' line's (I4)
 #   #P<US>WTIME<US>SIZE<US>TAG<US>HOME<US>PRIOR<US>MODE<US>FLAVOUR<US>NONCE<US>RHASH<US>N<US>FILE…
 #                                                    the plain line (read without eval: the stamped
 #                                                    files for the `stat` bits check, pruning's and
@@ -106,10 +108,15 @@
 #   __kk_img_edges=(…) __kk_img_reqf=(…) __kk_img_stamp=… __kk_img_stime=…
 #                                                    DIR<US>NAME<US>FILE (FILE empty: not found); the
 #                                                    request files; the stamps and their second
-#   __kk_img_units=(…) __kk_img_classes=(…) __kk_img_vars=(…) __kk_img_fns=(…) __kk_img_ro=(…) __kk_img_wtime=…
+#   __kk_img_units=(…) __kk_img_classes=(…) __kk_img_wtime=…
 #   __kk_img_base=(…)                                KIND<US>NAME<US>KEY<US>FLAG<US>VALUE: e an element,
 #                                                    s a scalar, f a function (VALUE its earlier
-#                                                    text); FLAG - absent before, = VALUE
+#                                                    text), r a read (chained); FLAG - absent
+#                                                    before, = VALUE
+#   #V<US>NAME<US>…                                  the variables the image creates (a comment for
+#                                                    `source`: the start reads it, never evaluates
+#                                                    it — the clash check, the undo)
+#   __kk_img_fns=(…) __kk_img_ro=(…)                 the undo's lists, before any function
 #   <functions>                                      declare -f, CR-rewritten (new ones; chained,
 #                                                    also the earlier ones this call redefined)
 #   <variables>                                      declare -g…; arrays X=() then X[k]=v; an
@@ -1230,7 +1237,7 @@ kk._img__kidms() {
 # state dumped (xproc, the allow-list below). rc 1 (OUT.why) when the image
 # does not fit or does not apply.
 kk._img__kidsim() {
-    local __kk_img_key="" __kk_img_nonce="" __kk_img_wtime="" __kk_img_end="" __kk_img_stamp="" __kk_img_stime="" __kk_img_i="" \
+    local __kk_img_key="" __kk_img_vs="" __kk_img_nonce="" __kk_img_wtime="" __kk_img_end="" __kk_img_stamp="" __kk_img_stime="" __kk_img_i="" \
           __kk_im_img=$__kk_im9_img __kk_im_dir=$__kk_im9_dir __kk_im_name=$__kk_im9_nm __kk_im_why="" __kk_im_caller=$__kk_im9_cl __kk_im_y
     local -a __kk_img_files=() __kk_img_edges=() __kk_img_reqf=() __kk_img_units=() __kk_img_classes=() __kk_img_vars=() \
           __kk_img_fns=() __kk_img_ro=() __kk_img_base=() __kk_img_hooks=() __kk_im_pl=() __kk_img_k=() __kk_img_v=()
@@ -1322,7 +1329,12 @@ kk._img__rbase() {
         # kkore's (its slots are element deltas), a hook VAR (set on every start))
         [[ $__kk_imr_n != __[Kk][Kk]_* && $__KK_IMG_SKIP != *" $__kk_imr_n "* && $__KK_IMG_BASHV != *" $__kk_imr_n "* \
            && -z ${__kk_imk_hv[$__kk_imr_n]-} ]] || continue
-        __kk_imr_w=${__kk_imk_was[$__kk_imr_n]-}
+        # (__kk_imk_was exists only when the load changed a variable that
+        # existed before it: else `${__kk_imk_was[NAME]}` would be an INDEXED
+        # read — NAME evaluated as arithmetic, which a value like `s/x//`
+        # fails; found by I4's CR read base)
+        __kk_imr_w=""
+        if [[ ${__kk_imk_was@a} == *A* ]]; then __kk_imr_w=${__kk_imk_was[$__kk_imr_n]-}; fi
         if [[ -n $__kk_imr_w ]]; then
             # (before this load: its declare -p record, evaluated as kk._img__vdelta does)
             __kk_imr_f=${__kk_imr_w#declare -}; __kk_imr_f=${__kk_imr_f%% *}
@@ -1361,9 +1373,20 @@ kk._img__rbase() {
             fi
         fi
         # (as kk._img__vdelta: the base list is one compound array, which the
-        # MSYS-family parsers read without its CR bytes)
+        # MSYS-family parsers read without its CR bytes. A scalar's value
+        # with a CR goes in its %q form instead — under LC_ALL=C, FLAG q: no
+        # raw CR in the entry, and a start compares the %q form of the value
+        # it finds, kimghit.sh kk._image__fits; I4 — tutil's __TUTIL_CR_SED,
+        # which tsed's files name, kept every `kk.uses tutil; kk.image tsed`
+        # from an image before)
         if [[ ${__kk_imr_e[-1]} == *$'\r'* ]]; then
-            __kk_imw_why="the earlier value of $__kk_imr_n, which this call's load reads, holds a CR byte (the base list is one compound array)"; return 1
+            if [[ ${__kk_imr_e[-1]} == "r$__KK_SEP$__kk_imr_n${__KK_SEP}s$__KK_SEP=$__KK_SEP"* ]]; then
+                printf -v __kk_imr_x %q "${__kk_imr_e[-1]#"r$__KK_SEP$__kk_imr_n${__KK_SEP}s$__KK_SEP=$__KK_SEP"}"
+                __kk_imr_e[-1]="r$__KK_SEP$__kk_imr_n${__KK_SEP}s${__KK_SEP}q$__KK_SEP$__kk_imr_x"
+            fi
+            if [[ ${__kk_imr_e[-1]} == *$'\r'* ]]; then
+                __kk_imw_why="the earlier value of $__kk_imr_n, which this call's load reads, holds a CR byte (the base list is one compound array)"; return 1
+            fi
         fi
     done
     (( ${#__kk_imr_e[@]} )) || return 0
@@ -1377,7 +1400,11 @@ kk._img__rbase() {
     for (( __kk_imr_x = 1; __kk_imr_x < ${#__kk_imw_P[@]}; __kk_imr_x++ )); do
         __kk_imr_t=$(( __kk_imr_t + ${#__kk_imw_P[__kk_imr_x]} ))
     done
-    __kk_imr_l0="# kbool image v1 ${#__kk_imr_h}"$'\n'
+    # (line 1: `# kbool image v1 N P V` — the plain line's length P stays, V
+    # is the variables' line, __kk_imw_P[1])
+    __kk_imr_l0=${__kk_imw_P[0]%%$'\n'*}
+    __kk_imr_l0=${__kk_imr_l0#"# kbool image v1 "* }
+    __kk_imr_l0="# kbool image v1 ${#__kk_imr_h} ${__kk_imr_l0%% *} ${#__kk_imw_P[1]}"$'\n'
     __kk_imr_t=$(( __kk_imr_t + ${#__kk_imr_l0} + ${#__kk_imr_h} ))
     # (SIZE: the third field of the plain line, 12 digits — the length stays)
     __kk_imr_l0+=${__kk_imr_h%%"$__KK_SEP"*}$__KK_SEP
@@ -2004,6 +2031,14 @@ kk._img__after() {
     if [[ -n $__kk_ima_held && -n $__kk_imw_htime ]]; then kk._image_dbg "held for 10 minutes: $__kk_ima_held"
     elif [[ -n $__kk_ima_held ]]; then kk._image_dbg "held for an hour: $__kk_ima_held"; fi
     if [[ -n $__kk_imw_pr ]]; then kk._image_dbg "writer profile (ms): $__kk_imw_pr"; fi
+    # (__KK_IMG_PROF=FILE: the outcome — `wrote` or the reason no image was
+    # written — and the profile appended to FILE, without VERBOSE_KKLASS
+    # (keyed, and its debug output slows the load): the seam of the bench's
+    # miss rows, tools/bench/imgcases.sh; I4)
+    if [[ -n ${__KK_IMG_PROF-} ]]; then
+        if (( __kk_imw_wrote )); then __kk_ima_x=wrote; else __kk_ima_x="no image written: ${__kk_imw_why:-?}"; fi
+        { printf '%s\nprofile %s\n' "$__kk_ima_x" "$__kk_imw_pr" >> "$__KK_IMG_PROF"; } 2>/dev/null || :
+    fi
     return 0
 }
 
@@ -2383,6 +2418,16 @@ kk._img__build() {
             __kk_imk_z="cannot write $__kk_imk_x2 (the function text check of this image)"
         fi
     fi
+    # (bash < 5.3: the clash check's output file NAME.vck, kimghit.sh
+    # kk._image__clash — made here, empty, under umask 077; one that is a
+    # symbolic link or not this user's regular file is left alone: the start
+    # then checks name by name. __KK_IMG_VCKFILE: also on bash >= 5.3)
+    if (( ! __kk_imk_y )) && [[ -n ${__KK_IMG_VCKFILE-} ]] || (( ! __kk_imk_y && BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] < 3 )); then
+        __kk_imk_x2=$__kk_im_dir/$__kk_im_name.vck
+        if [[ ! -L $__kk_imk_x2 ]] && [[ ! -e $__kk_imk_x2 || ( -f $__kk_imk_x2 && -O $__kk_imk_x2 ) ]]; then
+            { : >| "$__kk_imk_x2"; } 2>/dev/null || :
+        fi
+    fi
     set +C
     umask "$__kk_imw_um"
     if (( __kk_imk_y )); then __kk_imw_why="cannot write $__kk_imw_it"; __kk_imw_nohold=1; return 1; fi
@@ -2547,8 +2592,46 @@ kk._img__rwbug() {
     read -r -N 4096 __kk_imr_t < "$__kk_imw_t.rw" || :
     [[ $__kk_imr_t != *'1<>'* ]]
 }
+# kk._img__rwfix — on such a bash: rc 0 when every function of the image
+# (__kk_imj_af) whose `declare -f` text holds ` <> ` reads back right with
+# ` 1<> ` there — its text so rewritten, defined as a probe function and
+# printed again, is its own text (CR bytes aside: a CR-dropping parser's are
+# kk._fn_text_cr's business) — as kklass's kk._fn_text_cr checks its CR
+# rewrite. A ` <> ` inside a string (no redirection) prints back as ` 1<> `:
+# rc 1. The texts by 64 names, then one by one in a chunk with ` <> `. The
+# probe is removed again.
+kk._img__rwfix() {
+    local __kk_imr_i __kk_imr_f __kk_imr_c __kk_imr_r __kk_imr_p __kk_imr_cr
+    local -a __kk_imr_ch=()
+    printf -v __kk_imr_cr '\r'
+    for (( __kk_imr_i = 0; __kk_imr_i < ${#__kk_imj_af[@]}; __kk_imr_i += 64 )); do
+        __kk_imr_ch=("${__kk_imj_af[@]:__kk_imr_i:64}")
+        declare -f "${__kk_imr_ch[@]}" > "$__kk_imw_t.fn" 2>/dev/null
+        __kk_imr_c=""
+        read -r -N 268435456 __kk_imr_c < "$__kk_imw_t.fn" || :
+        [[ $__kk_imr_c == *' <> '* ]] || continue
+        for __kk_imr_f in "${__kk_imr_ch[@]}"; do
+            declare -f "$__kk_imr_f" > "$__kk_imw_t.fn" 2>/dev/null
+            __kk_imr_c=""
+            read -r -N 268435456 __kk_imr_c < "$__kk_imw_t.fn" || :
+            [[ $__kk_imr_c == *' <> '* ]] || continue
+            __kk_imr_c=${__kk_imr_c%$'\n'}
+            [[ $__kk_imr_c == "$__kk_imr_f () "$'\n'* ]] || return 1
+            __kk_imr_c=${__kk_imr_c#*$'\n'}
+            __kk_imr_r=${__kk_imr_c//' <> '/' 1<> '}
+            { eval "__kk_im_rwchk () "$'\n'"$__kk_imr_r"; } 2>/dev/null || { unset -f __kk_im_rwchk; return 1; }
+            declare -f __kk_im_rwchk > "$__kk_imw_t.fn" 2>/dev/null
+            unset -f __kk_im_rwchk
+            __kk_imr_p=""
+            read -r -N 268435456 __kk_imr_p < "$__kk_imw_t.fn" || :
+            __kk_imr_p=${__kk_imr_p%$'\n'}
+            [[ ${__kk_imr_p//"$__kk_imr_cr"/} == "__kk_im_rwchk () "$'\n'"${__kk_imr_c//"$__kk_imr_cr"/}" ]] || return 1
+        done
+    done
+    return 0
+}
 kk._img__text() {
-    local LC_ALL=C IFS=$'\n' __kk_imj_s __kk_imj_x __kk_imj_at __kk_imj_fl __kk_imj_l0 __kk_imj_l1 __kk_imj_l2 \
+    local LC_ALL=C IFS=$'\n' __kk_imj_s __kk_imj_x __kk_imj_v __kk_imj_rw=0 __kk_imj_at __kk_imj_fl __kk_imj_l0 __kk_imj_l1 __kk_imj_l2 \
           __kk_imj_l3 __kk_imj_l4 __kk_imj_fn="" __kk_imj_cr __kk_imj_c __kk_imj_p __kk_imj_w=$EPOCHSECONDS __kk_imj_n=0
     local -a __kk_imj_kv=() __kk_imj_ch=() __kk_imj_ps=() __kk_imj_af=("${__kk_imk_nf[@]}" "${__kk_imk_rf[@]}")
     local -A __kk_imj_isro=()
@@ -2565,10 +2648,17 @@ kk._img__text() {
     fi
     # bash 5.2 prints `1<> FILE` as `<> FILE`, which reads back as fd 0 (image
     # I3, kcl 010 on Cygwin 5.2: TFile.encrypt's `printf … 1<> "$tmp"` became
-    # a write to stdin); probed, not by version: a text with ` <> ` (a
-    # redirection with its default fd, or such a literal) gets no image
+    # a write to stdin); probed, not by version. Such a bash prints fd 0's
+    # `<> FILE` as `0<> FILE`, so its bare ` <> ` is fd 1: the text says
+    # ` 1<> ` instead, when every function holding ` <> ` reads back right
+    # (kk._img__rwfix; I4). A ` <> ` that is no redirection (a string) fails
+    # that check: no image, a hold
+    __kk_imj_rw=0
     if [[ $__kk_imj_fn == *' <> '* ]] && kk._img__rwbug; then
-        __kk_imw_why="bash $BASH_VERSION prints \`1<> FILE\` as \`<> FILE\` (fd 0 when read back): no image of a function text with \` <> \`"; return 1
+        if ! kk._img__rwfix; then
+            __kk_imw_why="bash $BASH_VERSION prints \`1<> FILE\` as \`<> FILE\` (fd 0 when read back), and a function text with \` <> \` does not read back with \` 1<> \`: no image"; return 1
+        fi
+        __kk_imj_rw=1
     fi
     printf -v __kk_imj_cr '\r'
     if [[ $__kk_imj_fn == *"$__kk_imj_cr"* ]]; then
@@ -2608,6 +2698,9 @@ kk._img__text() {
             __kk_imj_fn+=$__kk_imj_crt
         fi
     fi
+    # (bash 5.2's bare ` <> `, checked above: every one becomes ` 1<> ` — the
+    # CR rewrite keeps those tokens, and makes no new one)
+    if (( __kk_imj_rw )); then __kk_imj_fn=${__kk_imj_fn//' <> '/' 1<> '}; fi
     # the header: the plain line (read without eval: wtime, size — 12 digits,
     # filled in last —, the runtime tag, KBOOL_HOME, the prior set, the mode,
     # the stat flavour, the stamped files), then the lines that run
@@ -2619,17 +2712,26 @@ kk._img__text() {
     kk._img__arr __kk_img_reqf __kk_im_reqf;      __kk_imj_l2+=" $__kk_imj_s"
     printf -v __kk_imj_s '__kk_img_stamp=%q __kk_img_stime=%s' "$__kk_imk_stamp" "$__kk_imk_stime"; __kk_imj_l2+=" $__kk_imj_s"
     kk._img__arr __kk_img_units __kk_imk_units;   __kk_imj_l3=$__kk_imj_s
-    kk._img__arr __kk_img_classes __kk_imk_cls;   __kk_imj_l3+=" $__kk_imj_s"
-    kk._img__arr __kk_img_vars __kk_imk_nv;       __kk_imj_l3+=" $__kk_imj_s"
-    kk._img__arr __kk_img_fns __kk_imk_nf;        __kk_imj_l3+=" $__kk_imj_s"
-    kk._img__arr __kk_img_ro __kk_imk_ro;         __kk_imj_l3+=" $__kk_imj_s __kk_img_wtime=$__kk_imj_w"
+    kk._img__arr __kk_img_classes __kk_imk_cls;   __kk_imj_l3+=" $__kk_imj_s __kk_img_wtime=$__kk_imj_w"
     kk._img__arr __kk_img_base __kk_imk_base;     __kk_imj_l4=$__kk_imj_s
-    # line 1 carries the byte length of the lines after it (all ASCII but the
-    # paths of the plain line, measured in bytes under LC_ALL=C), so a start
-    # reads them with ONE read -N (a line-by-line read of ~150 KB costs ~0.4 s
-    # on the MSYS-family runtimes)
+    # after the header: the variables' line `#V<US>NAME<US>…` (a comment for
+    # `source`: the start reads it, kimghit.sh kk._image__hdr, for the clash
+    # check and the undo — never evaluated: ~80 KB of names for fv.dlg, I4),
+    # then the first line of the body: the functions and the readonly
+    # variables (the undo's lists, set by the source itself before any
+    # function is defined)
+    printf -v __kk_imj_x "$__KK_SEP%s" "${__kk_imk_nv[@]}"
+    (( ${#__kk_imk_nv[@]} )) || __kk_imj_x=""
+    __kk_imj_v="#V$__kk_imj_x"$'\n'
+    kk._img__arr __kk_img_fns __kk_imk_nf;        __kk_imj_x=$__kk_imj_s
+    kk._img__arr __kk_img_ro __kk_imk_ro;         __kk_imj_x+=" $__kk_imj_s"$'\n'
+    # line 1 carries the byte lengths of the lines after it (all ASCII but the
+    # paths of the plain line, measured in bytes under LC_ALL=C), of the plain
+    # line in them, and of the variables' line, so a start reads them with
+    # TWO read -N and cuts the plain line by its length (a line-by-line read
+    # of ~150 KB costs ~0.4 s on the MSYS-family runtimes)
     __kk_imj_s=$__kk_imj_l0$'\n'$__kk_imj_l1$'\n'$__kk_imj_l2$'\n'$__kk_imj_l3$'\n'$__kk_imj_l4$'\n'
-    __kk_imw_P=("# kbool image v1 ${#__kk_imj_s}"$'\n'"$__kk_imj_s" "$__kk_imj_fn")
+    __kk_imw_P=("# kbool image v1 ${#__kk_imj_s} $(( ${#__kk_imj_l0} + 1 )) ${#__kk_imj_v}"$'\n'"$__kk_imj_s" "$__kk_imj_v" "$__kk_imj_x$__kk_imj_fn")
     # the variables (declare -g, never -r / -x; arrays element by element);
     # kklass's tables in the final block, then the readonly flags
     for __kk_imj_x in "${__kk_imk_ro[@]}"; do __kk_imj_isro[$__kk_imj_x]=1; done
@@ -2771,7 +2873,7 @@ kk._img_prune() {
                 __kk_imp_d+=(0) ;;
             *.hold)
                 kk._image_hfile "$__kk_imp_x" || __kk_ima_f+=("$__kk_imp_x") ;;
-            *.ref|*.fnc)
+            *.ref|*.fnc|*.vck)
                 __kk_imp_refs+=("$__kk_imp_x") ;;
         esac
     done
@@ -2801,8 +2903,8 @@ kk._img_prune() {
         [[ ! -f $__kk_imp_x ]] || __kk_ima_f+=("$__kk_imp_x")
     done
     for __kk_imp_x in "${__kk_imp_refs[@]}"; do
-        if [[ $__kk_imp_x == *.fnc ]]; then             # NAME.fnc: kept with its image
-            __kk_imp_n=${__kk_imp_x%.fnc}.img
+        if [[ $__kk_imp_x == *.fnc || $__kk_imp_x == *.vck ]]; then   # NAME.fnc, NAME.vck: kept with its image
+            __kk_imp_n=${__kk_imp_x%.???}.img
             [[ -f $__kk_imp_n && -z ${__kk_imp_gone[$__kk_imp_n]-} ]] || __kk_ima_f+=("$__kk_imp_x")
             continue
         fi
@@ -2878,7 +2980,7 @@ kk._img_forget() {
         if [[ $__kk_imy_p == $__kk_imy_h.img ]]; then
             if (( ${#__kk_im_rn} >= 64 )) && ! kk._img__forgetmine "$__kk_imy_x"; then continue; fi
             __kk_imy_f+=("$__kk_imy_x")
-        elif [[ $__kk_imy_p == $__kk_imy_h.*ref || $__kk_imy_p == $__kk_imy_h.hold || $__kk_imy_p == $__kk_imy_h.fnc ]]; then
+        elif [[ $__kk_imy_p == $__kk_imy_h.*ref || $__kk_imy_p == $__kk_imy_h.hold || $__kk_imy_p == $__kk_imy_h.fnc || $__kk_imy_p == $__kk_imy_h.vck ]]; then
             if (( ${#__kk_im_rn} >= 64 )) && ! kk._img__forgetmine "$__kk_im_dir/$__kk_im_rn-${__kk_imy_p:0:8}.img"; then continue; fi
             __kk_imy_f+=("$__kk_imy_x")
         elif [[ $__kk_imy_p == $__kk_imy_h.tmp.* ]]; then
@@ -2899,6 +3001,15 @@ kk._img_forget() {
 # ---------------------------------------------------------------------------
 # The undo of a failed image start (§8.3)
 
+# kk._img__vsplit ARRAY — the caller's ARRAY = the fields of the header's
+# variables' line __kk_img_vs (`#V`, then the names the image creates).
+kk._img__vsplit() {
+    local - IFS=$__KK_SEP$'\n'
+    local -n __kk_imv_r=$1
+    set -f
+    __kk_imv_r=($__kk_img_vs)
+}
+
 # kk._img_undo — kk._image_hit's header lists (__kk_img_*): drop the listed
 # units' registration (and their classes, kklass's hook), forget the listed
 # classes, unset the listed functions and the listed variables that are not
@@ -2916,7 +3027,11 @@ kk._img_undo() {
     if declare -F kk._unit_forget_class >/dev/null; then
         for __kk_imu_x in "${__kk_img_classes[@]}"; do kk._unit_forget_class "$__kk_imu_x"; done
     fi
-    for __kk_imu_x in "${__kk_img_vars[@]}"; do
+    # (the variables' line of the header, kimghit.sh kk._image__hdr: `#V`, then
+    # the names, <US>-separated)
+    local -a __kk_imu_v=()
+    kk._img__vsplit __kk_imu_v
+    for __kk_imu_x in "${__kk_imu_v[@]:1}"; do
         if [[ -R $__kk_imu_x ]]; then
             unset -n "$__kk_imu_x"
         elif [[ ${!__kk_imu_x@a} != *r* ]]; then

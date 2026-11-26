@@ -171,9 +171,8 @@ kk.settings greet._settings GREET_NAME LC_CTYPE || return
   hook.
 * `kk.unit --forget` (and any failed load) drops the unit's records; a reload
   records them again.
-* Today this only runs the hook; the records let a later load image
-  (`kk.image`, [IMAGE_PLAN](https://github.com/Keksov/kklass/blob/main/docs/dev/IMAGE_PLAN.md))
-  run the hooks again on every start instead of the whole load.
+* The records let a load image (`kk.image`, below) run the hooks again on every
+  start instead of the whole load.
 * `kk.localeDefault` exports `LC_CTYPE=C.UTF-8` when none of `LC_ALL`,
   `LC_CTYPE`, `LANG` is set non-empty, and does nothing otherwise. rc 0.
 
@@ -213,15 +212,122 @@ kk.settings greet._settings; echo "rc=$?"    # => rc=2
 # 2> kk.settings greet._settings: not inside a unit's load
 ```
 
-### `kk.image UNIT...` — load images (in progress)
+### `kk.image UNIT...` — load images
 
-`kk.image UNIT...` behaves like `kk.uses UNIT...` (the same units, the same rc), but a later
-start sources a saved image of the load instead of loading the units again, then runs their
-settings hooks; any doubt is a normal load. It is being built in stages
-(`kklass/docs/dev/IMAGE_PLAN.md`; today: the first load of a script, the `dates` staleness
-check, the flags `KBOOL_IMAGE`, `KBOOL_IMAGE_DIR`, `KBOOL_IMAGE_CHECK`, `KBOOL_IMAGE_CHAIN`).
-The header of `kuse.sh` ("Load images") has the current rules; this section gets the full
-reference when the feature is complete (stage I4).
+`kk.image UNIT...` loads the same units as `kk.uses UNIT...` and returns the same rc. The
+first start loads them normally and then saves an **image** of what the load did: the new
+functions, the new variables, the class tables, the unit registration. A later start of
+the same script sources that image instead of loading the units again, then runs the
+units' settings hooks (above), so environment-dependent values are fresh on every start.
+Any doubt means a normal load. A script changes one line:
+
+```bash
+source /path/to/kbool/kbool.sh || exit
+kk.image fv.dlg || exit          # was: kk.uses fv.dlg
+```
+
+| call | does | rc |
+|---|---|---|
+| `kk.image [--optional] UNIT...` | a start through a valid image; else a normal load, then the image is written for the next start (unless a hold says not to, below) | `kk.uses`' rc; a hit is 0 |
+| `kk.image --rebuild [--optional] UNIT...` | a normal load, then a new image even when the old one is valid; clears a hold | the load's rc |
+| `kk.image --forget UNIT...` | removes this request's images, holds and helper files (every key) | 0; 2 without a unit |
+| `kk.image --path [UNIT...]` | prints the image path this start would use (without units: the folder) | 0 valid; 1 none, stale, refused or held; 2 a usage error |
+
+`--optional` works as in `kk.uses`; a failed optional unit means no image (and a hold).
+
+**Settings** (read on every call):
+
+| variable | effect |
+|---|---|
+| `KBOOL_IMAGE=off` (or `0`) | every `kk.image` is a plain `kk.uses`; nothing is read or written |
+| `KBOOL_IMAGE_DIR=DIR` | the image folder (absolute). Default: `$XDG_CACHE_HOME/kbool/image/v1`, else `~/.cache/kbool/image/v1` on Linux, macOS and BSD; on Git-bash, MSYS2 and Cygwin `%LOCALAPPDATA%\kbool\image\v1`, else `%USERPROFILE%\AppData\Local\…`, else `~/.cache/…`. Root uses images only under `KBOOL_IMAGE_DIR` |
+| `KBOOL_IMAGE_CHECK=stat\|dates\|hash` | how a changed file is noticed (below). Default `stat` on Linux, macOS and BSD, `dates` on the Windows runtimes; another value means the default |
+| `KBOOL_IMAGE_CHAIN=on\|off` | `on` (default): an image may sit on top of units loaded before `kk.image` (below); `off`: then a plain `kk.uses` |
+| `VERBOSE_KKLASS=debug` | one `kbool: image: …` line on stderr for every decision (hit, miss, why no image) |
+
+**What makes an image valid.** Each image belongs to one *key*: the kbool folder, the bash
+binary and version, the system, the check mode, `KBOOL_VERSION`, the request and the files
+it resolves to, the units loaded before (their names, order and files), the merged
+configuration and `VERBOSE_KKLASS`. Another key means another image file. On every start
+the image must also be fresh: every file of the load, `kbool.sh`, the kkore files and
+`kklass.sh` are checked in the chosen mode:
+
+* `stat` runs one `stat` per start and compares size, times, inode, owner and mode;
+* `dates` runs nothing: every file must be older than the image's reference file. A copy
+  with old dates (`cp -p`, an archive of an unreleased tree) is not noticed; release
+  archives are covered by `KBOOL_VERSION`. A clock that runs behind the files' (a network
+  folder) can let a stale image through: use `stat` or `hash` there;
+* `hash` runs one `cksum` per start (content only).
+
+A dependency that resolves to another file now is stale too. A stale or missing image
+means a normal load and a new image.
+
+**Units loaded before (chaining).** With `kk.uses tstringlist; kk.image fv.dlg` the image
+holds only what the `fv.dlg` load added or changed. Every slot it changed that existed
+before (another unit's table entry, a registry, a scalar, a redefined function) is saved
+with its earlier value, and a start first checks that those slots still hold those
+values. Variables of the earlier units that the new units' files name are checked the same
+way (their value, or an array's size). A script that changed such state after the image
+was made gets a plain `kk.uses`.
+
+**When there is no image** (a normal load; the reason in the debug line). The writer
+writes nothing when the load fails; changes exports, traps, options, aliases, the umask,
+function attributes or the hash table outside the settings hooks; changes a variable or
+function that existed before (without units loaded before; with them the change is
+saved as described above, but a removed variable, changed attributes, a changed export,
+nameref or readonly variable are refused); would set a variable that existed before only
+when it is absent (an environment preset of a unit's default); leaves a file descriptor
+open; or when the load is too quick to be worth an image (less than 1.5 times what a
+start would cost). A start is a plain `kk.uses` when the folder is not trusted, when a
+variable the image would create already exists in the caller's view (a global, a local of
+a calling function — even a bare `local NAME` —, a nameref, a readonly or exported one),
+when a saved earlier slot differs, under `set -a`, inside a unit's load or a settings
+hook, or when `KBOOL_IMAGE_CHAIN=off` and units are loaded already.
+
+**Holds.** When the writer refuses, it leaves a hold (`NAME.hold`): for one hour every
+start of that key is a plain `kk.uses` and nothing is written. A load that is only just
+too quick for an image, and an image written less than 10 minutes ago that is stale or
+damaged again, are held too (the first for 10 minutes). `--rebuild` and `--forget` clear
+a hold.
+
+**Trust and damage.** Images are shell code, so a start checks before reading one: every
+folder level from the base down is owned by you and is no symbolic link or junction; the
+image and its helper files are your regular files; with `stat` on Linux, macOS and BSD an
+image that others can write, and a folder that everyone can write without the sticky bit,
+are refused. An existing image that fails a check gives one WARNING per process. Folders
+and files are made under `umask 077`. A damaged image (cut short, a syntax error) is
+undone and the units are loaded normally; a flipped byte that still parses is not
+noticed, and one inside an array index or an integer value can end the script (there is
+no checksum). The image folder is pruned on every write: images older than 30 days or of
+a removed kbool tree, more than 8 per request and earlier units, 16 per request name, 64
+or 256 MB per folder.
+
+**Limits.**
+
+* An image is valid for the earlier units *as their own load leaves them*, plus the checks
+  above. A unit that reads earlier units' state through their **functions**, or through
+  names built at run time (`eval`, `${!name}`), is not guarded: set
+  `KBOOL_IMAGE_CHAIN=off` for such a program.
+* A calling function's local that shadows a global of an earlier unit which a new unit
+  sets with `declare -g`: the normal load writes the global, a start writes the local.
+* MSYS2 and Git-bash drop CR bytes when they read code. A function with a CR byte is
+  rewritten by kklass when kklass is part of the load; without kklass such a load gets no
+  image there. A changed earlier value (chaining) that holds a CR byte is refused.
+* bash 5.2 prints `1<> FILE` as `<> FILE`, which would read back as fd 0. The image
+  writes `1<>` again, checked by reading each such function back; a ` <> ` inside a
+  string fails that check, and that load gets no image on bash 5.2.
+* On bash 5.1 a function with `&> "$var"` gets no image.
+* A script whose settings make the load set different values every time (pids, random
+  values outside the settings hooks) gets no image.
+
+**Shared Windows machines.** On MSYS2 and Cygwin without `LOCALAPPDATA` and
+`USERPROFILE`, images go to `~/.cache`, which lies inside the runtime's install folder
+(`C:\msys64\home\you`, `C:\cygwin64\home\you`). Other local users may be able to write
+there, and the file checks cannot tell on these runtimes. On a shared machine set
+`KBOOL_IMAGE_DIR` to a folder only you can write, or `KBOOL_IMAGE=off`.
+
+**Cost.** See the benchmarks (`tools/bench`, the `image` suite): a start through an
+image, the checks alone, a first start that writes the image.
 
 ### Variables
 

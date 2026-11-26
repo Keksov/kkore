@@ -139,12 +139,42 @@ A=$UF_OUT
 uf_run "$H"'; declare -a ZZ_M=(); KBOOL_IMAGE=off kk.image zz 2>/dev/null; echo "rc=$? $(declare -p ZZ_M)"; echo 1'
 [[ $A == "$UF_OUT" && $A == *$'\n'1 ]]
 uf_check "a global declare -a ZZ_M=() before kk.image: a plain load (the clash named) — the same as a normal load (${A%%$'\n'*})" $?
-# the documented limit: a bare `local NAME` of an image ARRAY name is not
-# seen (one declare -p per array name: ~25 ms per start for fv.dlg) — the
-# element lines then end the script, as the kuse.sh header and the plan say
-uf_run "$H"'; f() { local ZZ_M; kk.image zz 2>/dev/null; echo "rc=$?"; }; f; echo "survived"'
-[[ $UF_RC != 0 && $UF_OUT != *survived* ]]
-uf_check "known limit (documented): f() { local ZZ_M; kk.image zz; } with ZZ_M an image array name ends the script" $?
+# a bare `local NAME` of an image ARRAY name (neither a value nor an
+# attribute): before I4 not seen (the element lines then ended the script, a
+# documented limit); the clash check is ONE declare -p over the names now,
+# which sees it — a plain load, the script goes on
+uf_run "$H; $D"'; f() { local ZZ_M; kk.image zz 2>"$FX/e.txt"; echo "rc=$?"; }; f; echo "survived $(zz.n)"; grep -c "exists in this shell already" "$FX/e.txt"'
+[[ $UF_OUT == "rc=0"$'\n'"survived n=2 two=2 s=unit"$'\n'"1" ]]
+uf_check "f() { local ZZ_M; kk.image zz; } (a bare local of an image array name): a plain load, the clash named, the script goes on — the limit before I4 is closed" $?
+# bash < 5.3 reads that declare -p through the image's NAME.vck (made by the
+# writer, a marker line closes it); __KK_IMG_VCKFILE takes that path on 5.3
+uf_run "$H"'; kk.image --forget zz 2>/dev/null; __KK_IMG_VCKFILE=1 kk.image zz 2>/dev/null; ls "$FX/img" | grep -c "^zz-.*\.vck$"'
+[[ $UF_OUT == 1 ]]
+uf_check "the writer makes NAME.vck beside the image (bash < 5.3; forced by __KK_IMG_VCKFILE) [I4]" $?
+E1='IFS= read -r l < "$FX/e.txt"; echo "$l"'
+uf_run "$H; $D"'; __KK_IMG_VCKFILE=1; kk.image zz 2>"$FX/e.txt"; '"$E1"'; echo "${__KK_UNIT_PID[zz]-image}"'
+[[ $UF_OUT == "kbool: image: loaded from "*"/zz-"*".img"$'\n'"image" ]]
+uf_check "the clash check through NAME.vck: a hit when no name exists [I4]" $?
+uf_run "$H; $D"'; __KK_IMG_VCKFILE=1; f() { local ZZ_M; kk.image zz 2>"$FX/e.txt"; echo "rc=$?"; }; f; echo "survived $(zz.n)"; grep -c "exists in this shell already" "$FX/e.txt"'
+[[ $UF_OUT == "rc=0"$'\n'"survived n=2 two=2 s=unit"$'\n'"1" ]]
+uf_check "... and a plain load when one exists (a bare local), the script goes on [I4]" $?
+# NAME.vck that cannot serve (missing, a symbolic link — never followed —, not
+# writable): one declare -p per name, the same answers
+for VCK in "$FX"/img/zz-*.vck; do :; done
+for v in gone link ro; do
+    rm -f "$VCK" "$FX/vck.target"
+    case $v in
+        link) ln -s "$FX/vck.target" "$VCK" 2>/dev/null || { : > "$VCK"; v=link-copied; } ;;
+        ro)   : > "$VCK"; chmod a-w "$VCK" ;;
+    esac
+    uf_run "$H; $D"'; __KK_IMG_VCKFILE=1; f() { local ZZ_M; kk.image zz 2>"$FX/e.txt"; echo "rc=$?"; }; f; echo "survived $(zz.n)"; grep -c "exists in this shell already" "$FX/e.txt"'
+    A=$UF_OUT
+    uf_run "$H; $D"'; __KK_IMG_VCKFILE=1; kk.image zz 2>"$FX/e.txt"; '"$E1"'; [[ -e "$FX/vck.target" ]] && echo followed'
+    UF_OUT="$A | $UF_OUT"
+    [[ $A == "rc=0"$'\n'"survived n=2 two=2 s=unit"$'\n'"1" && $UF_OUT == *" | kbool: image: loaded from "*"/zz-"*".img" ]]
+    uf_check "NAME.vck $v: the clash check name by name — a plain load with a bare local, a hit without, nothing followed [I4]" $?
+    chmod u+w "$VCK" 2>/dev/null; rm -f "$VCK" "$FX/vck.target"
+done
 uf_run "$H"'; kk.image zp 2>/dev/null'
 uf_run "$H"'; f() { local -a ZP_M; kk.image zp 2>/dev/null; echo "rc=$?"; }; f; declare -p ZP_M'
 [[ $UF_OUT == "rc=0"$'\n'"declare -A ZP_M=([a]=\"1\" [b]=\"2\" )" || $UF_OUT == "rc=0"$'\n'"declare -A ZP_M=([b]=\"2\" [a]=\"1\" )" ]]
@@ -310,8 +340,10 @@ uf_run "$H"'; kk.image '"${L64}b"' 2>/dev/null'
 n0=0; for f in "$FX"/img/"${L64:0:64}"-*.img; do n0=$(( n0 + 1 )); done
 uf_run "$H; $D"'; kk.image --forget '"${L64}a"
 n1=0; for f in "$FX"/img/"${L64:0:64}"-*.img; do n1=$(( n1 + 1 )); done
-[[ $n0 == 2 && $n1 == 1 && $UF_OUT == "kbool: image: --forget: 2 file(s) of '${L64:0:64}' removed from $FX/img" ]]
-uf_check "L8: --forget of a request whose 64-character name is another's: only its own image (and .ref) go, matched by the request hash ($n0 -> $n1)" $?
+# (bash < 5.3: the image's NAME.vck goes with it too — I4)
+nf=2; (( BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] < 3 )) && nf=3
+[[ $n0 == 2 && $n1 == 1 && $UF_OUT == "kbool: image: --forget: $nf file(s) of '${L64:0:64}' removed from $FX/img" ]]
+uf_check "L8: --forget of a request whose 64-character name is another's: only its own image (and .ref, and on bash < 5.3 its .vck) go, matched by the request hash ($n0 -> $n1)" $?
 
 # ---------------------------------------------------------------------------
 kt_test_section "027: what the critic's mutations survived"

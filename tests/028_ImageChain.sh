@@ -136,6 +136,17 @@ EOF
 if_unit "$FX" pz <<'EOF'
 PZ_V=1
 EOF
+# pcr / pcq (I4): P's scalar holds a CR byte (as tutil's __TUTIL_CR_SED), and
+# pcq's load copies it — its read base keeps the value's %q form (FLAG q)
+if_unit "$FX" pcr <<'EOF'
+declare -g PCR_SED
+printf -v PCR_SED 's/\r$//'
+EOF
+if_unit "$FX" pcq <<'EOF'
+kk.uses pcr || return
+PCQ_COPY=$PCR_SED
+pcq.n() { printf '%q\n' "$PCQ_COPY"; }
+EOF
 touch -t 202001010000 "$FX"/kcl/*/*.sh
 
 # ch.sh MODE "P..." REQ FILE [OPT] — kk.uses P...; kk.image REQ (MODE plain:
@@ -455,6 +466,18 @@ uf_run "$H"'; export __PB_N=5; kk.uses pb; kk.image --rebuild pf 2>/dev/null'
 uf_run "$H"'; kk.uses pb; kk.image pf 2>"$FX/e.txt"; e1; pf.n'
 [[ $UF_OUT == "kbool: image: __PB_N, which this call's load reads, differs from when the image was made; a normal load (kk.uses pf)"$'\n'"pf 0 1 4" ]]
 uf_check "P's default __PB_N exported in the writer (a word of P's file): a read base — a start without it is a plain kk.uses" $?
+# a read base value with a CR byte (I4): kept in its %q form (FLAG q), not
+# refused — before I4 `kk.uses tutil; kk.image tsed` never got an image
+noholds
+uf_run "$H"'; kk.uses pcr; kk.image pcq 2>"$FX/e.txt"; fl "wrote"; fl "no image written"; for f in "$FX"/img/pcq-*.img; do IFS= read -r -d "" z < "$f"; done; [[ $z == *"PCR_SED\\037s\\037q\\037"* ]] && echo q-entry'
+[[ $UF_OUT == "kbool: image: wrote "*"/pcq-"*".img"$'\n'"q-entry" ]]
+uf_check "a read base value with a CR byte (P's PCR_SED = 's/<CR>\$//'): the image is written, its entry in the %q form (FLAG q) [I4]" $?
+uf_run "$H"'; kk.uses pcr; kk.image pcq 2>"$FX/e.txt"; e1; echo "${__KK_UNIT_PID[pcq]-image}"; pcq.n'
+[[ $UF_OUT == "kbool: image: loaded from "*"/pcq-"*".img"$'\n'"image"$'\n'"\$'s/\\r\$//'" ]]
+uf_check "... the next start is a hit, the copy keeps its CR [I4]" $?
+uf_run "$H"'; kk.uses pcr; printf -v PCR_SED "s/\\r\$/x/"; kk.image pcq 2>"$FX/e.txt"; e1; echo "${__KK_UNIT_PID[pcq]+normal}"; pcq.n'
+[[ $UF_OUT == "kbool: image: PCR_SED, which this call's load reads, differs from when the image was made; a normal load (kk.uses pcq)"$'\n'"normal"$'\n'"\$'s/\\r\$/x/'" ]]
+uf_check "... the script changed that value (another one with a CR): a plain kk.uses, the copy the new value [I4]" $?
 noholds
 uf_run "$H"'; kk.uses pb; PB_V=9; kk.image --rebuild pc 2>"$FX/e.txt"; fl "no image written"; echo "copy=$PC_COPY"; ls "$FX/img" | grep -c "^pc-.*\.hold$"'
 [[ $UF_OUT == "kbool: image: no image written: the simulated image start differs: V:PB_V differs from the writer's"$'\n'"copy=9"$'\n'"1" ]]

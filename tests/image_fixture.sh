@@ -29,7 +29,10 @@
 #         a scalar IUV_F whose value holds a line `declare -a IUV_FAKE` (bash
 #         5.1 prints it on a line of its own; I3 fix 1, critic M2 / L1)
 #   irw   irw.f FILE: writes ab, then X over its first byte through `1<>`
-#         (image I3: bash 5.2 prints `1<> F` as `<> F`, fd 0 when read back)
+#         (image I3: bash 5.2 prints `1<> F` as `<> F`, fd 0 when read back;
+#         I4: such a bash's image says ` 1<> ` again, checked by a re-print)
+#   irs   irs.f FILE: as irw.f, and a string " <> " (I4: on such a bash the
+#         re-print check fails — the string would change: no image)
 # Helpers in DIR: dump.sh FILE (kk._img_state FILE canon, in the child's
 # state), cmp.sh A B (kk._img_cmp A B set with the documented allow-list:
 # prints `cmp rc=N DIFF`).
@@ -123,6 +126,9 @@ iuv.f() { IUV_A[key]=v; IUV_N+=7; IUV_N+=1; echo "A=${IUV_A[key]-} N=$IUV_N kind
 EOF
     if_unit "$fx" irw <<'EOF'
 irw.f() { printf ab > "$1"; printf X 1<> "$1"; }
+EOF
+    if_unit "$fx" irs <<'EOF'
+irs.f() { printf ab > "$1"; printf X 1<> "$1"; echo " <> "; }
 EOF
     if_unit "$fx" iro <<'EOF'
 [[ -n ${IRO_C+x} ]] || declare -gr IRO_C=1

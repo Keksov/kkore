@@ -81,8 +81,24 @@ kk._image_run() {
 # kk._image_hash STR [VAR] -> VAR (default __kk_im_h): FNV-1a (32 bit, 8 hex
 # digits) over the characters of STR (a character's code in the current
 # locale; the key's string compare decides validity, the hash only names).
+# Where `&` works in a pattern replacement (patsub_replacement, bash >= 5.2's
+# default) and STR holds no STX byte: every character becomes a printf
+# argument in ONE expansion (`'C` + STX, split on STX — not SOH, bash's own
+# quoting byte), ONE printf gives all their codes as the FNV rounds and ONE
+# arithmetic expansion runs them: the same digits as the loop below, ~3.5x
+# cheaper (350 characters: 2.7 -> 0.8 ms on the laptop, I4).
 kk._image_hash() {
     local __kk_ih_s=$1 __kk_ih_h=2166136261 __kk_ih_i __kk_ih_c __kk_ih_n=${#1}
+    if (( __kk_ih_n )) && [[ :$BASHOPTS: == *:patsub_replacement:* && $1 != *$'\002'* ]]; then
+        local - IFS=$'\002' __kk_ih_q="'"
+        local -a __kk_ih_a=()
+        set -f
+        __kk_ih_a=(${__kk_ih_s//?/$__kk_ih_q&$IFS})
+        printf -v __kk_ih_s '__kk_ih_h=((__kk_ih_h^%d)*16777619)&4294967295,' "${__kk_ih_a[@]}"
+        __kk_ih_c=$(( ${__kk_ih_s%,} ))
+        printf -v "${2:-__kk_im_h}" %08x "$__kk_ih_h"
+        return 0
+    fi
     for (( __kk_ih_i = 0; __kk_ih_i < __kk_ih_n; __kk_ih_i++ )); do
         printf -v __kk_ih_c %d "'${__kk_ih_s:__kk_ih_i:1}"
         __kk_ih_h=$(( ((__kk_ih_h ^ __kk_ih_c) * 16777619) & 4294967295 ))
@@ -604,7 +620,7 @@ kk._image_wbits() {
 # kk.image loads normally and rewrites, or holds). Fork-free in `dates` mode;
 # one fork (stat / cksum) in the others.
 kk._image_hit() {
-    local __kk_img_key="" __kk_img_nonce="" __kk_img_wtime="" __kk_img_end="" __kk_img_stamp="" __kk_img_stime="" __kk_img_i="" __kk_hi_e \
+    local __kk_img_key="" __kk_img_vs="" __kk_img_nonce="" __kk_img_wtime="" __kk_img_end="" __kk_img_stamp="" __kk_img_stime="" __kk_img_i="" __kk_hi_e \
           __kk_hi_rc=0
     local -a __kk_img_files=() __kk_img_edges=() __kk_img_reqf=() __kk_img_units=() __kk_img_classes=() \
           __kk_img_vars=() __kk_img_fns=() __kk_img_ro=() __kk_img_base=() __kk_img_hooks=() __kk_im_pl=() __kk_img_k=() __kk_img_v=()
@@ -659,7 +675,7 @@ kk._image__apply() {
 # folder: usable); 1 none, stale, not applicable, refused or held (nothing
 # printed when there is no path); fork-free in `dates` mode.
 kk._image_path() {
-    local __kk_img_key="" __kk_img_nonce="" __kk_img_wtime="" __kk_img_end="" __kk_img_stamp="" __kk_img_stime="" __kk_hi_rc=0
+    local __kk_img_key="" __kk_img_vs="" __kk_img_nonce="" __kk_img_wtime="" __kk_img_end="" __kk_img_stamp="" __kk_img_stime="" __kk_hi_rc=0
     local -a __kk_img_files=() __kk_img_edges=() __kk_img_reqf=() __kk_img_units=() __kk_img_classes=() \
           __kk_img_vars=() __kk_img_fns=() __kk_img_ro=() __kk_img_base=() __kk_img_hooks=() __kk_im_pl=()
     if (( __kk_im_rc != 0 )); then
@@ -857,22 +873,40 @@ kk._image__check() {
     kk._image__fits
 }
 
-# kk._image__hdr — read the header of __kk_im_img (no eval): __kk_hc_2 = its
-# lines after line 1 (`# kbool image v1 N`, N = their byte length, read at
-# once as bytes: LC_ALL=C for that read — the plain line's paths may be
-# UTF-8; a line-by-line read is slow on the MSYS-family runtimes; a read -N
-# that succeeds read all N), its plain line parsed (kk._image_pline:
-# __kk_im_pl, __kk_img_files). rc 1 (__kk_im_why) when it is no such header.
-# The caller's locals __kk_hc_1 / __kk_hc_2.
+# kk._image__hdr — read the header of __kk_im_img (no eval): line 1 is
+# `# kbool image v1 N P V` — N the byte length of the header lines after it
+# (the plain line first, then the lines that run), P the plain line's (its
+# newline included), V the byte length of the variables' line that follows
+# the header; all read at once as bytes (LC_ALL=C in here: the plain line's
+# paths may be UTF-8, and the offsets are bytes; a line-by-line read is slow
+# on the MSYS-family runtimes; a read -N that succeeds read all N). ->
+# __kk_hc_2 = the header lines (the caller evaluates them), the plain line
+# parsed (kk._image_pline: __kk_im_pl, __kk_img_files), and the variables'
+# line `#V<US>NAME<US>…<newline>` (a comment for `source`, never evaluated:
+# the names the image creates) as it is into the caller's __kk_img_vs — the
+# clash check passes it to ONE `declare -p` split on <US> and newline (the
+# field `#V` a name no variable has), the undo splits it the same way; an
+# array of ~3000 names made here cost ~2 ms more and its expansion ~2 ms
+# more again (I4). The plain line is cut by its length, not by a pattern:
+# `${X%%<newline>*}` over the old 117 KB header of fv.dlg cost 6 ms (28 ms
+# under a UTF-8 locale; I4). rc 1 (__kk_im_why) when it is no such header.
+# The caller's locals __kk_hc_1 / __kk_hc_2 / __kk_img_vs.
 kk._image__hdr() {
-    { IFS= read -r __kk_hc_1 && [[ $__kk_hc_1 == "# kbool image v1 "[1-9]* && ${__kk_hc_1#"# kbool image v1 "} != *[!0-9]* \
-                                   && ${#__kk_hc_1} -le 30 ]] \
-      && LC_ALL=C IFS= read -r -N "${__kk_hc_1#"# kbool image v1 "}" __kk_hc_2; } < "$__kk_im_img" 2>/dev/null \
+    local LC_ALL=C __kk_hd_n="" __kk_hd_p="" __kk_hd_v=""
+    { IFS= read -r __kk_hc_1 && [[ $__kk_hc_1 == "# kbool image v1 "[1-9]*" "[1-9]*" "[1-9]* && ${#__kk_hc_1} -le 50 ]] \
+      && __kk_hd_n=${__kk_hc_1#"# kbool image v1 "} && __kk_hd_v=${__kk_hd_n##* } && __kk_hd_p=${__kk_hd_n#* } \
+      && __kk_hd_p=${__kk_hd_p%% *} && __kk_hd_n=${__kk_hd_n%% *} \
+      && [[ $__kk_hd_n$__kk_hd_p$__kk_hd_v != *[!0-9]* && ${#__kk_hd_n} -le 12 && ${#__kk_hd_p} -le 12 && ${#__kk_hd_v} -le 12 ]] \
+      && (( 10#$__kk_hd_p < 10#$__kk_hd_n )) \
+      && IFS= read -r -N "$__kk_hd_n" __kk_hc_2 && IFS= read -r -N "$__kk_hd_v" __kk_img_vs; } < "$__kk_im_img" 2>/dev/null \
       || { __kk_im_why="not an image of format v1, or its header is incomplete"; return 1; }
-    if [[ $__kk_hc_2 != *$'\n' ]]; then
+    if [[ ${__kk_hc_2:__kk_hd_n-1} != $'\n' || ${__kk_hc_2:__kk_hd_p-1:1} != $'\n' ]]; then
         __kk_im_why="the image header is incomplete"; return 1
     fi
-    if ! kk._image_pline "${__kk_hc_2%%$'\n'*}"; then __kk_im_why="the image header is damaged"; return 1; fi
+    if ! kk._image_pline "${__kk_hc_2:0:__kk_hd_p-1}"; then __kk_im_why="the image header is damaged"; return 1; fi
+    if [[ $__kk_img_vs != "#V"[$'\n'"$__KK_SEP"]* || ${__kk_img_vs:__kk_hd_v-1} != $'\n' ]]; then
+        __kk_im_why="the image header is damaged (its variables' line)"; return 1
+    fi
     return 0
 }
 
@@ -890,20 +924,8 @@ kk._image__fits() {
     # (critic H1): readonly (§8.3), a caller's local of any kind, a global
     # array of the other kind, a nameref, a preset — the image would write
     # into it (or die on `X[key]` of an indexed one inside the source), and
-    # the undo would unset it. A plain kk.uses decides instead. `${!X@a}`
-    # sees `local -a X=()` / a global `declare -a X=()`, `${!N@a}` with
-    # N=NAME[@] an array with no element yet (`local -a X`), `+x` a set
-    # scalar, -R a nameref. Limit (documented): a bare `local NAME` (neither
-    # a value nor an attribute) is not seen — only one `declare -p` per name
-    # would tell, measured ~25 ms per start for fv.dlg's 1335 array names —
-    # and when NAME is an image ARRAY name, its element lines can then end
-    # the caller's script (an arithmetic error inside the source).
-    for __kk_hc_x in "${__kk_img_vars[@]}"; do
-        __kk_hc_n="$__kk_hc_x[@]"
-        if [[ -n ${!__kk_hc_x@a} || -n ${!__kk_hc_n@a} || -n ${!__kk_hc_x+x} || -R $__kk_hc_x ]]; then
-            __kk_im_why="'$__kk_hc_x' exists in this shell already (${!__kk_hc_n@a}): the image would write into it"; return 2
-        fi
-    done
+    # the undo would unset it. A plain kk.uses decides instead.
+    if [[ $__kk_img_vs == "#V$__KK_SEP"* ]]; then kk._image__clash || return; fi
     # the base (§7.7): every pre-existing slot the image changes holds the
     # value it had when the image was made (the delta was made against it),
     # and every pre-existing variable of P's the load READ (a word of this
@@ -922,7 +944,8 @@ kk._image__fits() {
     #   f  the function NAME, VALUE its earlier `declare -f` text
     #      (kk._image__fntext);
     #   r  a read of P's variable NAME (I2b fix round): KEY s = a scalar (`-`
-    #      unset, `=` its value), a = an indexed array (VALUE `COUNT:LAST`, the
+    #      unset, `=` its value; FLAG `q` = VALUE is its value's %q form under
+    #      LC_ALL=C — a value with a CR byte, I4), a = an indexed array (VALUE `COUNT:LAST`, the
     #      element count and the last index: an append writes LAST+1), A = an
     #      associative array (VALUE its element count).
     # (Unchained: kkore's registration slots only; chained also P's kklass
@@ -981,6 +1004,11 @@ kk._image__fits() {
                 case $__kk_hc_k$__kk_hc_x in
                     s-*) [[ $__kk_hc_m != *[aA]* && -z ${!__kk_hc_n+x} ]] && continue ;;
                     s=*) [[ $__kk_hc_m != *[aA]* && -n ${!__kk_hc_n+x} && ${!__kk_hc_n} == "${__kk_hc_x:2}" ]] && continue ;;
+                    sq*) # (a value with a CR byte, kept in its %q form under LC_ALL=C: I4)
+                         if [[ $__kk_hc_m != *[aA]* && -n ${!__kk_hc_n+x} ]]; then
+                             LC_ALL=C printf -v __kk_hc_s %q "${!__kk_hc_n}"
+                             [[ $__kk_hc_s == "${__kk_hc_x:2}" ]] && continue
+                         fi ;;
                     a=*) if [[ $__kk_hc_m == *a* ]]; then
                              eval "__kk_hc_l=(\"\${!$__kk_hc_n[@]}\")"
                              __kk_hc_s=0:
@@ -1013,6 +1041,63 @@ kk._image__fits() {
         __kk_im_why="$__kk_hc_n differs from the image's base"; return 2
     done
     return 0
+}
+
+# kk._image__clash — the clash check of kk._image__fits: rc 2 (__kk_im_why)
+# when a name of the variables' line __kk_img_vs exists in the caller's
+# view. ONE `declare -p` over all the names (the line split on <US> and
+# newline: its first field `#V` names no variable, so the call never runs
+# without names — which would print every variable). I4: a loop of four
+# expansions per name cost ~25 ms per fv.dlg start for its ~3000 names on
+# the laptop; one declare -p 4-8 ms there (most of it the "not found"
+# messages it writes to /dev/null). It also sees
+# a bare `local NAME` (neither a value nor an attribute), which the loop's
+# expansions did not (the limit documented before I4: such a NAME of an
+# image array ended the script inside the source). Its output: on bash >=
+# 5.3 a `${ …; }` substitution (no fork); older ones print it into the
+# image's NAME.vck (the writer makes it empty under umask 077 beside the
+# image; pruning and --forget take it with the image), closed by a marker
+# line `NONCE.BASHPID.RANDOM` — read back, the text counts only when it ends
+# with that marker and no NUL byte cut it (a start of the same image at the
+# same moment that truncated or wrote the file makes the marker another or
+# puts it after a hole: then the loop below). NAME.vck missing, a symbolic
+# link (never followed), not a regular file of this user's, not writable:
+# one `declare -p NAME` per name (exact, slow; __KK_IMG_VCKFILE non-empty
+# takes the file path on bash >= 5.3 too — a test seam, kkore 027).
+kk._image__clash() {
+    local - IFS=$__KK_SEP$'\n' __kk_hc_o="" __kk_hc_m __kk_hc_f=$__kk_im_dir/$__kk_im_name.vck __kk_hc_ok=0 __kk_hc_x __kk_hc_n
+    set -f
+    if (( BASH_VERSINFO[0] > 5 || ( BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 3 ) )) && [[ -z ${__KK_IMG_VCKFILE-} ]]; then
+        eval '__kk_hc_o=${ declare -p -- $__kk_img_vs 2>/dev/null; }'
+        __kk_hc_ok=1
+    elif [[ -f $__kk_hc_f && ! -L $__kk_hc_f && -O $__kk_hc_f && -w $__kk_hc_f ]]; then
+        __kk_hc_m=$__kk_img_nonce.$BASHPID.$RANDOM
+        { { declare -p -- $__kk_img_vs 2>/dev/null; printf '%s\n' "$__kk_hc_m"; } >| "$__kk_hc_f"; } 2>/dev/null
+        { IFS= read -r -d '' __kk_hc_o < "$__kk_hc_f"; } 2>/dev/null
+        if [[ $__kk_hc_o == "$__kk_hc_m"$'\n' ]]; then
+            __kk_hc_o="" __kk_hc_ok=1
+        elif [[ $__kk_hc_o == *$'\n'"$__kk_hc_m"$'\n' ]]; then
+            __kk_hc_ok=1
+        fi
+    fi
+    if (( ! __kk_hc_ok )); then
+        __kk_hc_o=""
+        for __kk_hc_x in $__kk_img_vs; do
+            [[ $__kk_hc_x != "#V" ]] || continue
+            if declare -p -- "$__kk_hc_x" >/dev/null 2>&1; then __kk_hc_o="declare -- $__kk_hc_x"; break; fi
+        done
+    fi
+    [[ -n $__kk_hc_o ]] || return 0
+    # (the first record: `declare -FLAGS NAME[=…]`)
+    __kk_hc_x=${__kk_hc_o#declare -* }
+    __kk_hc_x=${__kk_hc_x%%[=$'\n']*}
+    __kk_hc_n=""
+    if [[ -n $__kk_hc_x && $__kk_hc_x != *[!A-Za-z0-9_]* && $__kk_hc_x != [0-9]* ]]; then
+        __kk_hc_n="$__kk_hc_x[@]"
+        __kk_hc_n=${!__kk_hc_n@a}
+    fi
+    __kk_im_why="'$__kk_hc_x' exists in this shell already ($__kk_hc_n): the image would write into it"
+    return 2
 }
 
 # kk._image__fntext NAME -> __kk_hc_q: the `declare -f NAME` text (trailing

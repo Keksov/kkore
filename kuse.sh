@@ -214,10 +214,11 @@
 # file that fails a check gets ONE WARNING per process), and — on a start — a
 # variable the image creates that exists in the caller's view already (a
 # readonly one, a caller's local or nameref, a global of another kind, a
-# preset: the image would write into it). Limit: a bare `local NAME` (neither
-# a value nor an attribute) in a calling function is not seen, and when NAME
-# is an image ARRAY name the start may end the script (its element lines
-# fail inside the source). Limit (chained): a calling function's local that
+# preset, also a bare `local NAME` with neither a value nor an attribute: the
+# image would write into it) — ONE `declare -p` over the image's names (on
+# bash < 5.3 through the image's NAME.vck, made by the writer: a marker line
+# tells a complete read; one that cannot serve means a declare -p per name).
+# Limit (chained): a calling function's local that
 # shadows a P global which a unit sets with `declare -g` — the normal load
 # writes the global, the image's delta line (a plain assignment, sourced in
 # the start) writes the local, and the base check reads the local (equal):
@@ -253,7 +254,10 @@
 # function holds a CR byte this parser drops that kklass's kk._fn_text_cr
 # cannot rewrite; bash < 5.2 and a function text with `&> "$` (IMG-D9); a
 # bash whose declare -f prints `1<> FILE` as `<> FILE` (5.2: it reads back as
-# fd 0; probed) and a function text with ` <> ` (kcl tfile there); a
+# fd 0; probed) and a function text with a ` <> ` that does not read back as
+# ` 1<> ` (such a bash prints fd 0 as `0<> FILE`, so the image says ` 1<> `
+# for its bare ` <> ` — every function holding one defined again from that
+# text must print back as before: a ` <> ` inside a string fails that); a
 # plain scalar outside the hooks that holds this shell's pid (pid state
 # belongs in a hook VAR: an image would hand every start the writer's pid; a
 # readonly or integer one is a constant; held 10 minutes only — a constant

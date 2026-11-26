@@ -187,9 +187,11 @@ printf '%s noted\n' "$EPOCHSECONDS" > "${P1%.img}.hold"
 : > "$FX/img/ia2-12345678.img"; : > "$FX/img/ia-b-12345678.img"
 uf_run "$H"'; VERBOSE_KKLASS=debug kk.image --forget ia; echo "rc=$?"; KBOOL_IMAGE=off kk.image --forget ib; echo "rc=$?"'
 if_imgs
-[[ $UF_OUT == "kbool: image: --forget: 5 file(s) of 'ia' removed from $FX/img"$'\n'"rc=0"$'\n'"rc=0" \
-   && $IF_IMGS == "ia-b-12345678.img ia2-12345678.img" && ! -e ${P1%.img}.hold ]]
-uf_check "--forget ia: its images of every key (three modes), its .ref and .hold go — not another request's (ia2, ia-b); rc 0; it works under KBOOL_IMAGE=off too (ib gone)" $?
+# (bash < 5.3: each image's NAME.vck too — I4)
+nf=5; (( BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] < 3 )) && nf=8
+[[ $UF_OUT == "kbool: image: --forget: $nf file(s) of 'ia' removed from $FX/img"$'\n'"rc=0"$'\n'"rc=0" \
+   && $IF_IMGS == "ia-b-12345678.img ia2-12345678.img" && ! -e ${P1%.img}.hold && ! -e ${P1%.img}.vck ]]
+uf_check "--forget ia: its images of every key (three modes), its .ref and .hold (on bash < 5.3 its .vck) go — not another request's (ia2, ia-b); rc 0; it works under KBOOL_IMAGE=off too (ib gone)" $?
 rm -f "$FX"/img/*
 
 DBG='VERBOSE_KKLASS=debug'                # (VERBOSE_KKLASS is keyed: the same value throughout)
@@ -325,5 +327,34 @@ if (( ! WIN )); then
     [[ $A == "rc=0"$'\n'"rc=0" && $UF_OUT == "rc=0"$'\n'"rc=0" ]]
     uf_check "an unwritable image folder: silent (each mode, --forget too), a normal load, rc 0 (IMG-D3)" $?
 fi
+
+# ---------------------------------------------------------------------------
+kt_test_section "021: the file-name hash (§7.1; I4)"
+
+# the one-expression FNV-1a of bash >= 5.2 (patsub_replacement) gives the
+# digits of the loop it replaced, one printf per character (still the path
+# with patsub_replacement off, on bash 5.1, or for a string with an STX byte):
+# blanks, quotes, a newline, a tab, US / SOH / DEL / STX bytes, `&`,
+# backslashes, glob characters, Cyrillic and CJK, under C and C.UTF-8
+cat > "$FX/hash.sh" <<'EOF'
+source "$FX/kbool.sh" || exit 9
+kk._image_hitlib || exit 9
+T=(a "a b" "x'y\"z" $'nl\nnl\ttab' $'us\037sep\001soh\177del' $'stx\002x' 'gl*o?b[x]' '\back\slash&amp&' 'ünïcödé пример 漢字' "kbool image v1"$'\n'"home=/c/x"$'\n'"request=fv.dlg"$'\037')
+r=""
+for loc in "" C C.UTF-8; do
+    if [[ -n $loc ]]; then export LC_ALL=$loc; fi
+    for s in "${T[@]}"; do
+        shopt -s patsub_replacement 2>/dev/null; kk._image_hash "$s" a
+        shopt -u patsub_replacement 2>/dev/null; kk._image_hash "$s" b
+        [[ $a == "$b" && $a == [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f] ]] || r+="[$loc|$s: $a $b] "
+    done
+done
+shopt -s patsub_replacement 2>/dev/null
+kk._image_hash "fv.dlg" c
+echo "diff=${r:-none} fv.dlg=$c"
+EOF
+uf_run 'bash "$FX/hash.sh"'
+[[ $UF_OUT == "diff=none fv.dlg=b2308d92" ]]
+uf_check "the file-name hash: the same 8 hex digits through the one-expression path and the per-character loop (control bytes, quotes, multibyte, both locales); FNV-1a of 'fv.dlg' is b2308d92 [§7.1, I4]" $?
 
 kt_test_log "021_Image.sh completed"
