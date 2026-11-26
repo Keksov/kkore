@@ -249,9 +249,11 @@ next start hits. What to know:
   returned. Its stdin, stdout and stderr are `/dev/null` and it holds none of your
   descriptors: `x=$(cmd)` returns at once, nothing waits for it. Your shell's `$!` and job
   table are untouched (`wait` never waits for it). Where the tools exist it runs under
-  `setsid` (no terminal), GNU `timeout` (its own process group: at the limit it is killed
-  with its children) and `nice`. **To turn it off: `KBOOL_IMAGE=off`** (no image, no
-  writer; every call a normal load).
+  `setsid` (no terminal), `timeout` and `nice`; GNU `timeout` (Linux with glibc, the Windows
+  runtimes) gives it a process group of its own and at the limit kills it with its children,
+  busybox's (Alpine) and FreeBSD's signal the writer alone. Without `timeout` (stock macOS)
+  the writer is its own watchdog and at the limit stops itself, not its children. **To
+  turn it off: `KBOOL_IMAGE=off`** (no image, no writer; every call a normal load).
 * **One writer per image.** While a writer runs, its marker `NAME.bg` sits next to the
   image; a second start meanwhile loads normally and starts no second writer.
 * **Failures.** A writer that refuses holds for an hour, as above. A writer killed (a

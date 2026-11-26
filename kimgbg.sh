@@ -17,26 +17,38 @@
 # traps and options; the subshell ends at once, the writer is reparented: no
 # zombie, a later `wait` of the caller never waits for it): ERR / DEBUG /
 # RETURN traps dropped and `set +eEuxf`; every descriptor above 2 closed (the
-# list of /proc/$BASHPID/fd, else 3..255 — a `$(fvdlg … 3>&1 1>&2 2>&3)` must
+# list of /proc/$BASHPID/fd, else of /dev/fd, else 3..`ulimit -n` (at most 4096) — a `$(fvdlg … 3>&1 1>&2 2>&3)` must
 # not wait for the writer to drop the substitution's pipe); then, each part
 # where it is found (next to $BASH on Git-bash / MSYS2 / Cygwin, on PATH
 # elsewhere):
 #     setsid  timeout -k 10 LIMIT  nice -n 10  "$BASH" kimgbg.sh …  </dev/null >/dev/null 2>/dev/null &
 #   setsid: a session of its own, no controlling terminal (Linux, MSYS2,
 #   Cygwin; Git-bash has none: the writer keeps the console / pty session);
-#   GNU timeout: a process group of its own and the hard limit (LIMIT 120 s,
-#   then KILL 10 s later) for the writer AND its children; nice: a lower
-#   priority. Without a timeout (stock macOS) the writer is its own watchdog
-#   (mode `watch`: it runs the real writer as a process substitution and waits
-#   on that pipe with `read -t`, TERM then KILL to the writer's pid at the
-#   limit; the writer's children are not killed as a group there).
+#   timeout: the hard limit (LIMIT 120 s, then KILL 10 s later) — GNU
+#   coreutils' timeout (Linux glibc, Git-bash, MSYS2, Cygwin, brew's gtimeout
+#   is not looked for) puts itself and the writer in a process group of their
+#   own and at the limit signals that whole group: the writer AND its
+#   children; busybox's timeout (Alpine) signals only its child, the writer
+#   (its children, when the limit hits during one, end on their own: each is
+#   a bounded step of the write); FreeBSD's timeout signals its child, and
+#   with --kill-after its descendants it reaped; nice: a lower priority.
+#   Without a timeout (stock macOS) the writer is its own watchdog (mode
+#   `watch`: it runs the real writer again, mode `inner`, as a process
+#   substitution and waits on that pipe with `read -t`; at the limit TERM,
+#   10 s later KILL, to that writer's pid; a signal to the watcher stops it
+#   too; the writer's children are not killed as a group there). The writer's
+#   own TERM / HUP / INT trap does not signal a group: it leads none (the
+#   tools above do), and the caller's group is never signalled.
+#   The marker's PGID field names the writer's group only when it is not the
+#   caller's (the caller passes its group in __KK_IMG_BGCPG; '-' otherwise —
+#   watch mode, busybox, no /proc), so a guard may signal it safely.
 # What the writer reproduces: umask, cwd, the exported variables (inherited);
 # the settings this shell keys or reads at load — every KBOOL_* (KBOOL_CONFIG
 # made absolute), VERBOSE_KKLASS, __KK_CFG_ETC, HOME, USERPROFILE, ProgramData,
 # LANG, LC_ALL, LC_CTYPE, BASH_COMPAT and the image seams __KK_IMG_MINLOAD /
 # _MAXN / _MAXB — exported in the subshell only (the ones this shell has
 # unexported are named in __KK_IMG_KUNX and unexported again by the writer:
-# the same list kimage.sh kk._img__child gives its fresh process); IFS, the
+# ONE list with kimage.sh kk._img__child: kimghit.sh kk._image_kenv); IFS, the
 # shopts extglob / expand_aliases / nocasematch, `set -u` / `-f`; on argv
 # the calling file as this shell resolved it (as kk._img__child resolves it),
 # the project file, kbool.sh's path, the caller's __KK_UNIT_ORDER and the
@@ -80,8 +92,9 @@
 # after taking the marker; __KK_IMG_BGLIMIT=S the hard limit (default 120);
 # __KK_IMG_BGERR=FILE the writer's stderr (else /dev/null) — with
 # VERBOSE_KKLASS=debug its `kbool: image: …` lines; __KK_IMG_BGNOTOOLS=1 no
-# setsid / timeout / nice (the watchdog mode); kk._img_bgwait waits for a
-# writer to end.
+# setsid / timeout / nice (the watchdog mode); __KK_IMG_BGNOPROC=1 / 2 the
+# descriptor list without /proc / without /proc and /dev/fd (the 3..ulimit
+# loop); kk._img_bgwait waits for a writer to end.
 #
 # Locals: __kk_ib*_ / __kk_imbg_* (the dump of kimage.sh skips every name
 # starting with __kk_im).
@@ -161,7 +174,8 @@ kk._imgbg_fresh() {
 # rc 0 taken (the caller's __kk_imbg_tok, __kk_imbg_tag); 1 not (__kk_im_why
 # says why).
 kk._imgbg_take() {
-    local - __kk_ibt_m=$__kk_im_dir/$__kk_im_name.bg __kk_imbg_mt __kk_imbg_mo __kk_imbg_mp __kk_imbg_mg __kk_imbg_mq
+    local - __kk_ibt_m=$__kk_im_dir/$__kk_im_name.bg __kk_ibt_i __kk_ibt_r __kk_ibt_s RESULT="" \
+          __kk_imbg_mt __kk_imbg_mo __kk_imbg_mp __kk_imbg_mg __kk_imbg_mq
     if (( __kk_im_mk )); then
         ( umask 077 && mkdir -p -- "$__kk_im_dir" ) 2>/dev/null
         kk._image_levels
@@ -171,14 +185,33 @@ kk._imgbg_take() {
     fi
     kk._image_hash "$BASH" __kk_imbg_tag
     printf -v __kk_imbg_tok '%08x%08x' "$SRANDOM" "$SRANDOM"
-    if [[ -e $__kk_ibt_m || -L $__kk_ibt_m ]]; then
+    # (a few rounds: a marker can vanish or change between the reads — a
+    # writer that just ended, another start that just took it; fix round 1 X4b)
+    for (( __kk_ibt_i = 0; __kk_ibt_i < 4; __kk_ibt_i++ )); do
+        if [[ ! -e $__kk_ibt_m && ! -L $__kk_ibt_m ]]; then
+            set -C
+            if { printf '%s %s - %s -\n' "$EPOCHSECONDS" "$__kk_imbg_tok" "$__kk_imbg_tag" > "$__kk_ibt_m"; } 2>/dev/null; then return 0; fi
+            set +C
+            continue                    # (another start made it first: read it)
+        fi
         if ! kk._imgbg_marker "$__kk_ibt_m"; then
             __kk_im_why="the writer's marker $__kk_ibt_m is not a regular file of this user"; return 1
         fi
+        # (an empty read: a marker being written this instant — read again)
+        for (( __kk_ibt_r = 0; __kk_ibt_r < 5 && ${#__kk_imbg_mt} == 0; __kk_ibt_r++ )); do
+            [[ -e $__kk_ibt_m ]] || break
+            kk._imgbg_marker "$__kk_ibt_m" || break
+        done
+        [[ -e $__kk_ibt_m ]] || continue
         if kk._imgbg_fresh; then
             kk._imgbg_age
             __kk_im_why="a background writer is running (pid ${__kk_imbg_mp:--}, marked $RESULT s ago)"; return 1
         fi
+        # not fresh: the same marker still there? (a writer removes its marker
+        # and exits: read before the removal, its pid gone after it — no hold)
+        __kk_ibt_s="$__kk_imbg_mt $__kk_imbg_mo $__kk_imbg_mp"
+        kk._imgbg_marker "$__kk_ibt_m" || continue
+        [[ -e $__kk_ibt_m && "$__kk_imbg_mt $__kk_imbg_mo $__kk_imbg_mp" == "$__kk_ibt_s" ]] || continue
         kk._imgbg_age
         if (( RESULT >= 0 && RESULT < 600 )); then
             __kk_im_why="the last background writer did not finish (marked $RESULT s ago): a hold for 10 minutes"
@@ -190,10 +223,19 @@ kk._imgbg_take() {
         { printf '%s %s - %s -\n' "$EPOCHSECONDS" "$__kk_imbg_tok" "$__kk_imbg_tag" > "$__kk_ibt_m"; } 2>/dev/null \
             || { __kk_im_why="cannot write the marker $__kk_ibt_m"; return 1; }
         return 0
-    fi
-    set -C
-    { printf '%s %s - %s -\n' "$EPOCHSECONDS" "$__kk_imbg_tok" "$__kk_imbg_tag" > "$__kk_ibt_m"; } 2>/dev/null \
-        || { __kk_im_why="another start took the marker $__kk_ibt_m"; return 1; }
+    done
+    __kk_im_why="the writer's marker $__kk_ibt_m kept changing"
+    return 1
+}
+
+# kk._imgbg_unstale — kk.image --rebuild: remove this image's marker unless a
+# writer runs (fresh): a stale one would make the next background miss hold.
+kk._imgbg_unstale() {
+    local __kk_ibu_m=$__kk_im_dir/$__kk_im_name.bg __kk_imbg_tag="" RESULT="" \
+          __kk_imbg_mt __kk_imbg_mo __kk_imbg_mp __kk_imbg_mg __kk_imbg_mq
+    kk._imgbg_marker "$__kk_ibu_m" || return 0
+    kk._image_hash "$BASH" __kk_imbg_tag
+    if ! kk._imgbg_fresh; then command rm -f -- "$__kk_ibu_m" 2>/dev/null; fi
     return 0
 }
 
@@ -224,8 +266,9 @@ kk._imgbg_tool() {
 # load, one entry per line. Never fails the caller.
 kk._imgbg_spawn() {
     local __kk_ibs_cl=$__kk_im_caller __kk_ibs_drv=${__KK_UNITS[kuse]-} __kk_ibs_n __kk_ibs_x __kk_ibs_o="" __kk_ibs_k="" \
-          __kk_ibs_ux="" __kk_ibs_ord=$3 __kk_ibs_md=watch __kk_ibs_t="" __kk_ibs_err=${__KK_IMG_BGERR:-/dev/null} __kk_n=""
-    local -a __kk_ibs_ch=() __kk_ibs_s=()
+          __kk_ibs_ord=$3 __kk_ibs_md=watch __kk_ibs_t="" __kk_ibs_err=${__KK_IMG_BGERR:-/dev/null} __kk_ibs_pg=- \
+          __kk_imke_x="" RESULT=""
+    local -a __kk_ibs_ch=() __kk_ibs_s=() __kk_imke_s=() __kk_imke_u=()
     __kk_ibs_drv=${__kk_ibs_drv%[/\\]*}/kimgbg.sh
     # the calling file as this shell resolved it (kimage.sh kk._img__child)
     case $__kk_ibs_cl in
@@ -240,24 +283,23 @@ kk._imgbg_spawn() {
     if [[ $- == *u* ]]; then __kk_ibs_k+=" u"; fi
     if [[ $- == *f* ]]; then __kk_ibs_k+=" f"; fi
     if [[ $BASHOPTS == *nocasematch* ]]; then __kk_ibs_k+=" nocasematch"; fi
-    # the settings (the list of kk._img__child, plus its seams)
-    for __kk_ibs_n in "${!KBOOL_@}" VERBOSE_KKLASS __KK_CFG_ETC HOME USERPROFILE ProgramData LANG LC_ALL LC_CTYPE BASH_COMPAT \
-                      __KK_IMG_MINLOAD __KK_IMG_MAXN __KK_IMG_MAXB; do
-        [[ $__kk_ibs_n != KBOOL_VERSION ]] || continue
-        [[ -n ${!__kk_ibs_n+x} && ${!__kk_ibs_n@a} != *[aA]* ]] || continue
-        __kk_ibs_x=${!__kk_ibs_n}
-        if [[ $__kk_ibs_n == KBOOL_CONFIG && -n $__kk_ibs_x ]]; then
-            case $__kk_ibs_x in
-                /*|\\*|[A-Za-z]:*) ;;
-                *) kk._cfg_fold "$PWD/$__kk_ibs_x"; __kk_ibs_x=$__kk_n ;;
-            esac
-        fi
-        __kk_ibs_s+=("$__kk_ibs_n=$__kk_ibs_x")
-        [[ ${!__kk_ibs_n@a} == *x* ]] || __kk_ibs_ux+=" $__kk_ibs_n"
-    done
+    # the settings (kimghit.sh kk._image_kenv: the list kimage.sh's fresh
+    # processes get, plus the image seams); the unset ones are not exported
+    # in this shell, so the writer does not get them anyway
+    kk._image_kenv bg
+    __kk_ibs_s=("${__kk_imke_s[@]}")
     if [[ -n ${IFS+x} ]]; then __kk_ibs_s+=("__KK_IMG_KIFS=$IFS"); else __kk_ibs_s+=(__KK_IMG_KIFU=1); fi
-    __kk_ibs_s+=("__KK_IMG_KOPT=${__kk_ibs_o# }" "__KK_IMG_KSET=${__kk_ibs_k# }" "__KK_IMG_KUNX=${__kk_ibs_ux# }" \
-                 "__KK_IMG_BGKEY=$__kk_im_key" "__KK_IMG_BGTOK=$2")
+    # this shell's process group (/proc, fork-free; '-' unknown): the writer
+    # records a group of its own in the marker only when it is not this one
+    # (a test's guard signals that group: never the caller's — fix round 1 M1)
+    if [[ -r /proc/$BASHPID/stat ]]; then
+        { read -r __kk_ibs_x < "/proc/$BASHPID/stat"; } 2>/dev/null || __kk_ibs_x=""
+        __kk_ibs_x=${__kk_ibs_x##*) }
+        __kk_ibs_pg=${__kk_ibs_x#* }; __kk_ibs_pg=${__kk_ibs_pg#* }; __kk_ibs_pg=${__kk_ibs_pg%% *}
+        [[ -n $__kk_ibs_pg && $__kk_ibs_pg != *[!0-9]* ]] || __kk_ibs_pg=-
+    fi
+    __kk_ibs_s+=("__KK_IMG_KOPT=${__kk_ibs_o# }" "__KK_IMG_KSET=${__kk_ibs_k# }" "__KK_IMG_KUNX=${__kk_imke_x# }" \
+                 "__KK_IMG_BGKEY=$__kk_im_key" "__KK_IMG_BGTOK=$2" "__KK_IMG_BGCPG=$__kk_ibs_pg")
     if [[ -z ${__KK_IMG_BGNOTOOLS-} ]]; then
         if kk._imgbg_tool setsid __kk_ibs_t; then __kk_ibs_ch+=("$__kk_ibs_t"); fi
         if kk._imgbg_tool timeout __kk_ibs_t; then
@@ -270,13 +312,24 @@ kk._imgbg_spawn() {
     (
         trap - ERR DEBUG RETURN
         set +eEuxf
-        if [[ -d /proc/$BASHPID/fd ]]; then
-            for __kk_ibs_x in /proc/"$BASHPID"/fd/*; do
+        # every descriptor above 2 closed: the list of /proc/$BASHPID/fd, else
+        # of /dev/fd (macOS / BSD: the process's own), else 3..`ulimit -n`
+        # (at most 4096); __KK_IMG_BGNOPROC=1 / 2 (a test seam) skips /proc /
+        # /proc and /dev/fd
+        __kk_ibs_x=""
+        if [[ ${__KK_IMG_BGNOPROC-} != [12] && -d /proc/$BASHPID/fd ]]; then __kk_ibs_x=/proc/$BASHPID/fd
+        elif [[ ${__KK_IMG_BGNOPROC-} != 2 && -d /dev/fd ]]; then __kk_ibs_x=/dev/fd; fi
+        if [[ -n $__kk_ibs_x ]]; then
+            for __kk_ibs_x in "$__kk_ibs_x"/*; do
                 __kk_ibs_n=${__kk_ibs_x##*/}
                 if [[ -n $__kk_ibs_n && $__kk_ibs_n != *[!0-9]* ]] && (( __kk_ibs_n > 2 )); then exec {__kk_ibs_n}>&-; fi
             done
         else
-            for (( __kk_ibs_n = 3; __kk_ibs_n < 256; __kk_ibs_n++ )); do exec {__kk_ibs_n}>&-; done
+            __kk_ibs_t=$(ulimit -n 2>/dev/null)     # (a fork in this subshell: the rare path only)
+            if [[ -z $__kk_ibs_t || $__kk_ibs_t == *[!0-9]* || ${#__kk_ibs_t} -gt 6 ]] || (( __kk_ibs_t > 4096 || __kk_ibs_t < 3 )); then
+                __kk_ibs_t=4096
+            fi
+            for (( __kk_ibs_n = 3; __kk_ibs_n < __kk_ibs_t; __kk_ibs_n++ )); do exec {__kk_ibs_n}>&-; done
         fi
         for __kk_ibs_x in "${__kk_ibs_s[@]}"; do export "${__kk_ibs_x?}"; done
         unset -v BASH_ENV ENV
@@ -331,6 +384,7 @@ kk._imgbg_watch() {
     kk._imgbg_limit; __kk_ibw_l=$RESULT
     exec 3< <(exec "$BASH" "${BASH_SOURCE[0]}" --kbool-image-writer inner "$@")
     __kk_ibw_p=$!
+    __KK_IMG_BGSP=$__kk_ibw_p     # (a signal to this watcher stops the writer too: kk._imgbg_term)
     __kk_ibw_dl=$(( EPOCHSECONDS + __kk_ibw_l ))
     while :; do
         __kk_ibw_e=$(( __kk_ibw_dl - EPOCHSECONDS ))
@@ -368,8 +422,11 @@ kk._imgbg_main() {
             __kk_ibm_x=${__kk_ibm_x##*) }
             __kk_ibm_q=${__kk_ibm_x#* }; __kk_ibm_q=${__kk_ibm_q#* }; __kk_ibm_q=${__kk_ibm_q%% *}
             [[ -n $__kk_ibm_q && $__kk_ibm_q != *[!0-9]* ]] || __kk_ibm_q=-
+            # (a group of its own only: never the caller's — a guard that signals
+            # the recorded group must not hit the caller: fix round 1 M1)
+            [[ ${__KK_IMG_BGCPG-} == [0-9]* && $__kk_ibm_q != "${__KK_IMG_BGCPG-}" ]] || __kk_ibm_q=-
         fi
-        { printf '%s %s %s %s %s\n' "$EPOCHSECONDS" "$__KK_IMG_BGT" "$$" "${__kk_imbg_mg:--}" "$__kk_ibm_q" > "$__KK_IMG_BGM"; } 2>/dev/null || return 0
+        { printf '%s %s %s %s %s\n' "$EPOCHSECONDS" "$__KK_IMG_BGT" "$$" "${__kk_imbg_mg:--}" "$__kk_ibm_q" 1<> "$__KK_IMG_BGM"; } 2>/dev/null || return 0
         command chmod 600 -- "$__KK_IMG_BGM" 2>/dev/null
         trap 'kk._imgbg_exit' EXIT
         trap 'kk._imgbg_term TERM' TERM
@@ -384,7 +441,7 @@ kk._imgbg_main() {
         # sleep stopped: nothing outlives this writer)
         trap 'if [[ -n ${__KK_IMG_BGSP-} ]]; then kill "$__KK_IMG_BGSP" 2>/dev/null; fi; exit 143' TERM HUP INT
     fi
-    unset -v __KK_IMG_BGKEY __KK_IMG_BGTOK
+    unset -v __KK_IMG_BGKEY __KK_IMG_BGTOK __KK_IMG_BGCPG
     # the pause seam: the writer waits, killable (kk._imgbg_term stops the sleep)
     __kk_ibm_x=${__KK_IMG_BGPAUSE-}
     if [[ -n $__kk_ibm_x && $__kk_ibm_x != *[!0-9.]* ]]; then

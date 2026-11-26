@@ -111,7 +111,7 @@ if_imgs
 uf_check "set -a: a plain kk.uses, nothing written (every image assignment would be exported) [§3]" $?
 
 uf_run "$H"'; kk.image --rebuild --path ia; echo "rc=$?"; kk.image --path --bogus ia; echo "rc=$?"; kk.image --forget; echo "rc=$?"; kk.image nosuch; echo "rc=$?"; kk.image; echo "rc=$?"'
-[[ $UF_OUT == "kbool: error: kk.image --path: only one of --rebuild, --forget, --path"$'\n'"rc=2"$'\n'"kbool: error: kk.image --path: unknown option '--bogus'"$'\n'"rc=2"$'\n'"kbool: error: kk.image --forget: no unit named"$'\n'"rc=2"$'\n'"kbool: error: kk.uses: unit 'nosuch' not found"*$'\n'"rc=2"$'\n'"kbool: error: kk.uses: no unit named"$'\n'"rc=2" ]]
+[[ $UF_OUT == "kbool: error: kk.image --path: only one of --rebuild, --forget, --path, --background"$'\n'"rc=2"$'\n'"kbool: error: kk.image --path: unknown option '--bogus'"$'\n'"rc=2"$'\n'"kbool: error: kk.image --forget: no unit named"$'\n'"rc=2"$'\n'"kbool: error: kk.uses: unit 'nosuch' not found"*$'\n'"rc=2"$'\n'"kbool: error: kk.uses: no unit named"$'\n'"rc=2" ]]
 uf_check "usage errors (rc 2): two actions, an unknown option after one, --forget without a unit; an unknown unit or no unit is kk.uses' own error and rc" $?
 
 # ---------------------------------------------------------------------------

@@ -33,6 +33,14 @@ FL='fl() { local l; while IFS= read -r l; do [[ $l == *"$1"* ]] && { echo "$l"; 
 # ---- the writers: found by their markers, waited for, never left behind ----
 BG_SEEN=()          # "PID PGID" of every writer this file saw
 BG_LEFT=""          # leftovers found by bg_guard
+BG_PAT="$FX/kkore/kimgbg.sh --kbool-image-writer"   # a writer's command line
+# this test's own process group ('' unknown): never signalled (fix round 1 M1)
+TEST_PG=""
+if [[ -r /proc/$BASHPID/stat ]]; then
+    { read -r TEST_PG < "/proc/$BASHPID/stat"; } 2>/dev/null
+    TEST_PG=${TEST_PG##*) }; TEST_PG=${TEST_PG#* }; TEST_PG=${TEST_PG#* }; TEST_PG=${TEST_PG%% *}
+    [[ $TEST_PG != *[!0-9]* ]] || TEST_PG=""
+fi
 # bg_read MARKER -> BG_T BG_O BG_P BG_G BG_Q (time token pid tag pgid); rc 1 when absent
 bg_read() {
     BG_T="" BG_O="" BG_P="" BG_G="" BG_Q=""
@@ -69,13 +77,29 @@ bg_wait() {
     done
     return 1
 }
-# bg_kill PID PGID SIG — the writer's process group (and the pid itself)
+# bg_procs -> BG_PROCS: the live processes whose command line holds BG_PAT (a
+# writer, its watchdog, its timeout — also a detached one no marker names;
+# fork-free over /proc; empty without /proc)
+bg_procs() {
+    local d
+    local -a a=()
+    BG_PROCS=()
+    for d in /proc/[0-9]*; do
+        [[ ${d#/proc/} != "$BASHPID" && -r $d/cmdline ]] || continue
+        a=()
+        { mapfile -t -d '' a < "$d/cmdline"; } 2>/dev/null || continue
+        [[ " ${a[*]} " == *"$BG_PAT"* ]] && BG_PROCS+=("${d#/proc/}")
+    done
+    return 0
+}
+# bg_kill PID PGID SIG — the writer's process group (never this test's own:
+# a watch-mode writer, or a busybox timeout, shares it) and the pid itself
 bg_kill() {
-    if [[ -n $2 && $2 != *[!0-9]* && $2 != 0 ]]; then kill "-$3" -- "-$2" 2>/dev/null; fi
+    if [[ -n $2 && $2 != *[!0-9]* && $2 != 0 && $2 != "$TEST_PG" ]]; then kill "-$3" -- "-$2" 2>/dev/null; fi
     kill "-$3" "$1" 2>/dev/null
 }
-# bg_guard — every writer seen, and every marker's, still alive: killed
-# (group TERM, then KILL) and named in BG_LEFT
+# bg_guard — every writer seen, every marker's, and every live process with a
+# writer's command line: killed (group TERM, then KILL) and named in BG_LEFT
 bg_guard() {
     local e p q f n
     local -a all=("${BG_SEEN[@]}")
@@ -83,10 +107,12 @@ bg_guard() {
         [[ -e $f ]] || continue
         bg_read "$f" && [[ -n $BG_P && $BG_P != *[!0-9]* ]] && all+=("$BG_P ${BG_Q:--}")
     done
+    bg_procs
+    for p in "${BG_PROCS[@]}"; do all+=("$p -"); done
     for e in "${all[@]}"; do
         p=${e%% *} q=${e#* }
         kill -0 "$p" 2>/dev/null || continue
-        BG_LEFT+=" $p"
+        [[ " $BG_LEFT " == *" $p "* ]] || BG_LEFT+=" $p"
         bg_kill "$p" "$q" TERM
         for (( n = 0; n < 30; n++ )); do kill -0 "$p" 2>/dev/null || break; sleep 0.1; done
         bg_kill "$p" "$q" KILL
@@ -162,6 +188,9 @@ bg_marker; M=$BG_M
 uf_check "the caller's \$(…) returned in $(( T_US / 1000 )) ms while the writer waits 6 s (it holds no descriptor of the caller's: fd 7 = the substitution's pipe)" $?
 bg_started "$M"
 uf_check "the writer wrote its pid into the marker NAME.bg" $?
+bg_procs
+[[ ! -d /proc/$BASHPID ]] || [[ " ${BG_PROCS[*]} " == *" $BG_P "* ]]
+uf_check "the guard's /proc scan finds the writer by its command line (where there is /proc)" $?
 P=$BG_P O=$BG_O
 if [[ -d /proc/$P/fd ]]; then
     ok=0 bad=""
@@ -314,6 +343,112 @@ printf 'garbage\n' > "$IMGD/zz-0000abcf.bg"
 uf_run "$H"'; __KK_IMG_BGSYNC=1; kk.image --background ib 2>/dev/null'
 [[ ! -e $IMGD/zz-0000abcd.bg && -e $IMGD/zz-0000abce.bg && ! -e $IMGD/zz-0000abcf.bg ]] && ls "$IMGD"/ib-*.img >/dev/null 2>&1
 uf_check "pruning (on a write): a marker older than 10 minutes and an unreadable one removed, a young one kept" $?
+rm -f "$IMGD"/*
+
+# ---------------------------------------------------------------------------
+kt_test_section "029: fix round 1 — nested kk.image, RESULT, caller options, descriptors, BASH_ENV, parallel calls, --rebuild"
+
+uf_run "$H"'; __KK_IMG_BGSYNC=1; kk.image --background iin 2>/dev/null; echo "rc=$? IIN_RC=$IIN_RC"'
+uf_run "$H; $FL"'; kk.image iin 2>"$FX/e.txt"; echo "rc=$? ${__KK_UNIT_PID[iin]+normal} ib=$(declare -F ib.f) IB_V=${IB_V-unset} IIN_RC=${IIN_RC-unset}"; fl "loaded from"'
+P1=$UF_OUT
+uf_run "$H"'; KBOOL_IMAGE=off kk.image iin 2>/dev/null; echo "rc=$? ${__KK_UNIT_PID[iin]+normal} ib=$(declare -F ib.f) IB_V=${IB_V-unset} IIN_RC=${IIN_RC-unset}"'
+[[ $P1 == "rc=0  ib=ib.f IB_V=7 IIN_RC="*$'\n'"kbool: image: loaded from $IMGD/iin-"*".img" && ${P1%%$'\n'*} == "${UF_OUT/ normal/ }" ]]
+uf_check "a unit that calls kk.image inside its load (iin -> ib): the writer's image hits and its state is a plain load's (ib.f, IB_V=7) [M2: a nested kk.image keeps its own caller]" $?
+rm -f "$IMGD"/*
+
+uf_run "$H"'; RESULT=keep; KBOOL_IMAGE=off kk.image ia 2>/dev/null; echo "R=$RESULT"'
+R0=$UF_OUT
+uf_run "$H"'; RESULT=keep; __KK_IMG_BGSYNC=1; kk.image --background ia 2>/dev/null; echo "R=$RESULT"'
+[[ $UF_OUT == "$R0" && $R0 == R=keep ]]
+uf_check "a background miss leaves the caller's RESULT as a plain load does [L1]" $?
+rm -f "$IMGD"/*
+
+timed_run "$H"'; export __KK_IMG_BGPAUSE=6; set -f; exec 7>&1; kk.image --background ia 2>/dev/null; echo "rc=$?"'
+bg_marker; M=$BG_M
+(( T_US < 4000000 )) && [[ $UF_OUT == "rc=0" && -n $M ]]
+uf_check "a caller under set -f with fd 7 = the pipe: \$(…) returned in $(( T_US / 1000 )) ms while the writer waits [X1]" $?
+bg_started "$M"; bg_wait "$M" 60
+rm -f "$IMGD"/*
+timed_run "$H"'; export __KK_IMG_BGPAUSE=6; set -euo pipefail; trap "echo ERR-TRAP" ERR; trap ":" DEBUG; exec 8>&1; kk.image --background ia 2>/dev/null; echo "rc=$?"'
+bg_marker; M=$BG_M
+(( T_US < 4000000 )) && [[ $UF_OUT == "rc=0" && -n $M ]]
+uf_check "a caller under set -euo pipefail with ERR and DEBUG traps and fd 8 = the pipe: \$(…) returned in $(( T_US / 1000 )) ms, no trap output [X1]" $?
+bg_started "$M"; bg_wait "$M" 60
+rm -f "$IMGD"/*
+for np in 1 2; do
+    if [[ $np == 1 ]]; then lab=/dev/fd; else lab="the 3..ulimit loop"; fi     # (before the check: a $(…) in the title would reset $?)
+    timed_run "$H"'; export __KK_IMG_BGPAUSE=6; __KK_IMG_BGNOPROC='"$np"'; exec 300>&1; kk.image --background ia 2>/dev/null; echo "rc=$?"'
+    bg_marker; M=$BG_M
+    (( T_US < 4000000 )) && [[ $UF_OUT == "rc=0" && -n $M ]]
+    uf_check "descriptors closed without /proc (__KK_IMG_BGNOPROC=$np: $lab), fd 300 = the pipe: \$(…) returned in $(( T_US / 1000 )) ms [L3]" $?
+    bg_started "$M"; bg_wait "$M" 60
+    rm -f "$IMGD"/*
+done
+
+printf 'IA_S=from_bash_env\n' > "$FX/benv.sh"
+UF_ENV0=("${UF_ENV[@]}")
+UF_ENV+=(BASH_ENV="$FX/benv.sh")
+uf_run "$H"'; __KK_IMG_BGSYNC=1; kk.image --background ia 2>/dev/null; echo "rc=$?"'
+UF_ENV=("${UF_ENV0[@]}")
+[[ $UF_OUT == "rc=0" ]] && ls "$IMGD"/ia-*.img >/dev/null 2>&1 && ! ls "$IMGD"/*.hold >/dev/null 2>&1
+uf_check "a caller's BASH_ENV (it sets a unit's variable) does not reach the writer: the image written, no hold [X2]" $?
+rm -f "$IMGD"/* "$FX"/wpar.*
+
+for i in 1 2 3 4 5; do
+    ( uf_run "$H"'; __KK_IMG_BGERR=$FX/wpar.$$; export __KK_IMG_BGPAUSE=3; kk.image --background ia 2>/dev/null' ) &
+done
+wait
+bg_marker; M=$BG_M
+[[ -n $M ]] && bg_started "$M"
+bg_wait "$M" 60
+nw=0; for f in "$FX"/wpar.*; do [[ -e $f ]] && nw=$(( nw + 1 )); done
+[[ $nw == 1 ]] && ls "$IMGD"/ia-*.img >/dev/null 2>&1 && ! ls "$IMGD"/*.hold >/dev/null 2>&1
+uf_check "five first calls at once: exactly one writer ($nw started), the image written, no hold (no false 'did not finish') [X4b]" $?
+rm -f "$IMGD"/* "$FX"/wpar.*
+
+uf_run "$H"'; kk.image --path ia 2>/dev/null'      # (the debug key: the runs below use $H)
+MK=${UF_OUT%.img}.bg
+printf '%s deadbeefdeadbeef - x -\n' $(( EPOCHSECONDS - 100 )) > "$MK"
+uf_run "$H"'; kk.image --rebuild ia 2>/dev/null; echo "rc=$?"'
+r1=$UF_OUT
+uf_run "$H; $FL"'; kk.image --background ia 2>"$FX/e.txt"; fl "loaded from"; fl "hold"'
+[[ $r1 == rc=0 && ! -e $MK && $UF_OUT == "kbool: image: loaded from $IMGD/ia-"*".img" ]]
+uf_check "--rebuild removes a marker that is not fresh (100 s old, no pid): the next background start hits, no hold [L6]" $?
+rm -f "$IMGD"/*
+
+# ---------------------------------------------------------------------------
+kt_test_section "029: fix round 1 — the watch mode's group, the watcher's signal, the guard"
+
+uf_run "$H"'; export __KK_IMG_BGNOTOOLS=1 __KK_IMG_BGPAUSE=30; kk.image --background ia 2>/dev/null'
+bg_marker; M=$BG_M
+bg_started "$M"
+P=$BG_P Q=$BG_Q
+[[ -n $P && $Q == - ]]
+uf_check "watch mode: the writer shares its caller's process group, so the marker names no group (PGID '-') [M1]" $?
+bg_procs; n0=${#BG_PROCS[@]}
+kill -TERM "$P" 2>/dev/null
+n=50; while (( n-- > 0 )); do bg_procs; (( ${#BG_PROCS[@]} == 0 )) && break; sleep 0.1; done
+n1=${#BG_PROCS[@]}
+R=$(cat "${M%.bg}.hold" 2>/dev/null)
+[[ ! -e $M && $R == *" a background writer was stopped (TERM)" ]] && (( n0 >= 2 || n0 == 0 )) && (( n1 == 0 )) && ! kill -0 "$P" 2>/dev/null
+uf_check "watch mode: TERM to the watcher stops its inner writer too ($n0 writer processes before, $n1 within 5 s after), marker removed, a 10-minute hold [L2]" $?
+bg_guard; BG_LEFT=""                   # (anything left of that case: stopped here, reported above)
+rm -f "$IMGD"/*
+
+uf_run "$H"'; export __KK_IMG_BGNOTOOLS=1 __KK_IMG_BGPAUSE=30; kk.image --background ia 2>/dev/null'
+bg_marker; M=$BG_M
+bg_started "$M"
+P=$BG_P
+SEEN0=("${BG_SEEN[@]}")
+bg_guard
+LEFT=$BG_LEFT
+BG_LEFT="" BG_SEEN=("${SEEN0[@]:0:${#SEEN0[@]}-1}")
+n=50; while (( n-- > 0 )); do bg_procs; (( ${#BG_PROCS[@]} == 0 )) && break; sleep 0.1; done
+[[ $LEFT == *" $P"* && ! -e $M ]] && (( ${#BG_PROCS[@]} == 0 )) && ! kill -0 "$P" 2>/dev/null
+uf_check "the guard stops a watch-mode leftover (never this test's group): the test survives to report, no writer process left [M1]" $?
+bg_kill 2147483 "$TEST_PG" TERM
+kt_test_start "bg_kill never signals this test's own process group (a call with it returns)"
+kt_test_pass ok
 rm -f "$IMGD"/*
 
 # ---------------------------------------------------------------------------

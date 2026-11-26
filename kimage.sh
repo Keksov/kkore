@@ -1013,27 +1013,15 @@ kk._img__m1check() {
 # the simulated start (kk._img__kidsim), which then names only its rc in
 # OUT.why, shows there.
 kk._img__child() {
-    local - __kk_imc_m=$1 __kk_imc_n __kk_imc_x __kk_imc_cl=$__kk_im_caller __kk_imc_ux="" __kk_imc_o="" __kk_imc_k="" __kk_n=""
-    local -a __kk_imc_e=() __kk_imc_s=()
+    local - __kk_imc_m=$1 __kk_imc_n __kk_imc_x __kk_imc_cl=$__kk_im_caller __kk_imc_ux="" __kk_imc_o="" __kk_imc_k="" __kk_n="" \
+          __kk_imke_x=""
+    local -a __kk_imc_e=() __kk_imc_s=() __kk_imke_s=() __kk_imke_u=()
     set -f
-    # (the same list as kimgbg.sh kk._imgbg_spawn's, the background writer's: keep both)
-    for __kk_imc_n in "${!KBOOL_@}" VERBOSE_KKLASS __KK_CFG_ETC HOME USERPROFILE ProgramData LANG LC_ALL LC_CTYPE BASH_COMPAT; do
-        [[ $__kk_imc_n != KBOOL_VERSION ]] || continue
-        [[ $__kk_imc_m == chain || $__kk_imc_n != KBOOL_IMAGE ]] || continue
-        if [[ -n ${!__kk_imc_n+x} && ${!__kk_imc_n@a} != *[aA]* ]]; then
-            __kk_imc_x=${!__kk_imc_n}
-            if [[ $__kk_imc_n == KBOOL_CONFIG && -n $__kk_imc_x ]]; then
-                case $__kk_imc_x in
-                    /*|\\*|[A-Za-z]:*) ;;
-                    *) kk._cfg_fold "$PWD/$__kk_imc_x"; __kk_imc_x=$__kk_n ;;
-                esac
-            fi
-            __kk_imc_s+=("$__kk_imc_n=$__kk_imc_x")
-            [[ ${!__kk_imc_n@a} == *x* ]] || __kk_imc_ux+=" $__kk_imc_n"
-        else
-            __kk_imc_e+=(-u "$__kk_imc_n")
-        fi
-    done
+    # the settings (kimghit.sh kk._image_kenv: the list the background writer gets too)
+    kk._image_kenv "$__kk_imc_m"
+    __kk_imc_s=("${__kk_imke_s[@]}")
+    __kk_imc_ux=$__kk_imke_x
+    for __kk_imc_n in "${__kk_imke_u[@]}"; do __kk_imc_e+=(-u "$__kk_imc_n"); done
     if [[ $__kk_imc_m == m1 ]]; then __kk_imc_s+=(KBOOL_IMAGE=off); fi
     if [[ -n ${IFS+x} ]]; then __kk_imc_s+=("__KK_IMG_KIFS=$IFS"); else __kk_imc_s+=(__KK_IMG_KIFU=1); fi
     if [[ :$BASHOPTS: == *:extglob:* ]]; then __kk_imc_o+=" extglob"; fi

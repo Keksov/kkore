@@ -89,8 +89,17 @@
 #                           background process — a fresh $BASH running
 #                           kkore/kimgbg.sh — writes the image exactly as a
 #                           foreground miss would and ENDS BY ITSELF (a few
-#                           seconds; a hard limit of 120 s, then killed with
-#                           its children). The caller's $!, job table,
+#                           seconds; a hard limit of 120 s). It runs under
+#                           setsid (no terminal), timeout and nice where
+#                           found: GNU timeout kills it AND its children at
+#                           the limit (their own process group); busybox's
+#                           (Alpine) and FreeBSD's signal it alone. Without
+#                           a timeout tool (stock macOS) the writer is its
+#                           own watchdog ("watch" mode: it runs itself again
+#                           in a process substitution and waits on that pipe
+#                           with read -t; TERM, then KILL, to that writer
+#                           at the limit; its children are not killed as a
+#                           group). The caller's $!, job table,
 #                           traps and options are untouched; the writer
 #                           holds none of its descriptors (0-2 /dev/null:
 #                           `x=$(cmd)` returns at once). One writer per

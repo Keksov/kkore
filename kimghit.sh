@@ -20,6 +20,42 @@
 # kk._image_euid — __kk_im_euid = $EUID (a function, so a test can pretend root).
 kk._image_euid() { __kk_im_euid=$EUID; }
 
+# kk._image_kenv MODE — the settings a fresh process of this request is given
+# (ONE list for kimage.sh kk._img__child, MODE m1 | chain, and kimgbg.sh
+# kk._imgbg_spawn, MODE bg — the background writer): every KBOOL_* but
+# KBOOL_VERSION (kbool.sh sets it; KBOOL_IMAGE only for chain and bg),
+# VERBOSE_KKLASS, __KK_CFG_ETC, HOME, USERPROFILE, ProgramData, LANG, LC_ALL,
+# LC_CTYPE, BASH_COMPAT and, for bg, the image seams __KK_IMG_MINLOAD / _MAXN /
+# _MAXB -> the caller's arrays __kk_imke_s (NAME=VALUE of each set scalar,
+# KBOOL_CONFIG made absolute against $PWD), __kk_imke_u (the names not set) and
+# its string __kk_imke_x (" NAME…": the set names this shell does not export —
+# the child unexports them again). Fork-free; an array variable is skipped.
+kk._image_kenv() {
+    local - __kk_imke_n __kk_imke_v __kk_n=""
+    local -a __kk_imke_l=("${!KBOOL_@}" VERBOSE_KKLASS __KK_CFG_ETC HOME USERPROFILE ProgramData LANG LC_ALL LC_CTYPE BASH_COMPAT)
+    set -f
+    if [[ $1 == bg ]]; then __kk_imke_l+=(__KK_IMG_MINLOAD __KK_IMG_MAXN __KK_IMG_MAXB); fi
+    __kk_imke_s=() __kk_imke_u=() __kk_imke_x=""
+    for __kk_imke_n in "${__kk_imke_l[@]}"; do
+        [[ $__kk_imke_n != KBOOL_VERSION ]] || continue
+        [[ $1 != m1 || $__kk_imke_n != KBOOL_IMAGE ]] || continue
+        if [[ -n ${!__kk_imke_n+x} && ${!__kk_imke_n@a} != *[aA]* ]]; then
+            __kk_imke_v=${!__kk_imke_n}
+            if [[ $__kk_imke_n == KBOOL_CONFIG && -n $__kk_imke_v ]]; then
+                case $__kk_imke_v in
+                    /*|\\*|[A-Za-z]:*) ;;
+                    *) kk._cfg_fold "$PWD/$__kk_imke_v"; __kk_imke_v=$__kk_n ;;
+                esac
+            fi
+            __kk_imke_s+=("$__kk_imke_n=$__kk_imke_v")
+            [[ ${!__kk_imke_n@a} == *x* ]] || __kk_imke_x+=" $__kk_imke_n"
+        else
+            __kk_imke_u+=("$__kk_imke_n")
+        fi
+    done
+    return 0
+}
+
 # kk._image_run UNIT... — kk.image after its options (kuse.sh): prep, then
 # --path / --forget, the hit, the hold or H2 decision, the writer or a plain
 # kk.uses. rc = kk.image's.
@@ -43,6 +79,9 @@ kk._image_run() {
         if [[ $__kk_im_act == rebuild ]]; then
             __kk_im_why="--rebuild"
             __kk_im_rc=1
+            # (a background writer's marker that is not fresh goes: after the
+            # rebuild a background miss must not hold on it — fix round 1 L6)
+            if [[ -e $__kk_im_dir/$__kk_im_name.bg ]] && kk._image_bglib; then kk._imgbg_unstale; fi
         else
             kk._image_hit || __kk_im_rc=$?
             if (( __kk_im_rc == 0 )); then return 0; fi
