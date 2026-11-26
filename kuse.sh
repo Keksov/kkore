@@ -254,8 +254,10 @@
 # cannot rewrite; bash < 5.2 and a function text with `&> "$` (IMG-D9); a
 # bash whose declare -f prints `1<> FILE` as `<> FILE` (5.2: it reads back as
 # fd 0; probed) and a function text with ` <> ` (kcl tfile there); a
-# variable outside the hooks that holds this shell's pid (pid state belongs
-# in a hook VAR: an image would hand every start the writer's pid); or
+# plain scalar outside the hooks that holds this shell's pid (pid state
+# belongs in a hook VAR: an image would hand every start the writer's pid; a
+# readonly or integer one is a constant; held 10 minutes only — a constant
+# that equals the pid by chance is gone on the next start); or
 # (unchained) a unit was used (or forgotten) before in this shell. Not compared: resource
 # limits (ulimit), the directory stack.
 # A damaged image is undone and loaded normally — but a flipped byte that

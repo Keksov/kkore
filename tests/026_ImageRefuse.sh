@@ -5,7 +5,8 @@
 # 027/kcl), starts a background job or a coprocess, changes the hash table
 # outside its hooks (a hook that does is fine: the hooks run on every start),
 # an alias, a function attribute, a shell option, stores the shell's pid in a
-# variable outside the hooks (I3 fix 1); IMG-D9 (`&> "$f"`: written
+# plain scalar outside the hooks (held 10 minutes; a readonly or integer one is
+# a constant: imaged — I3 fix 1, 2); IMG-D9 (`&> "$f"`: written
 # on bash >= 5.2; refused on bash < 5.2 — the branch tested by overriding
 # kk._img_oldbash; a real 5.1 runs it on the CI alpine 5.1 row); the CR
 # matrix (a function with $'\r' in a string, in a pattern, a raw CR in a
@@ -65,6 +66,13 @@ EOF
 if_unit "$FX" ipid <<'EOF'
 declare -g IPID_P=$BASHPID
 EOF
+# ipidc (I3 fix 2): a readonly and an integer global that equal the pid —
+# constants by kind (a pid coincidence with fv's FV_OF_CENTERED=768 on
+# Cygwin): no pid state, imaged
+if_unit "$FX" ipidc <<'EOF'
+[[ -n ${IPIDC_R+x} ]] || declare -gr IPIDC_R=$BASHPID
+declare -gi IPIDC_I=$BASHPID
+EOF
 if_unit "$FX" id9 <<'EOF'
 id9.f() { echo "to $1" &> "$1"; }
 EOF
@@ -89,7 +97,20 @@ refused ihash "the simulated image start differs: the load changed the hash tabl
 refused ial "the load changed the shell state: alias"
 refused ift "the load changed the shell state: fattr"
 refused iopt "the load changed the shell state: options"
-refused ipid "the load stored this shell's pid in IPID_P outside the settings hooks (pid state: a hook VAR sets it on every start)"
+refused ipid "the load stored this shell's pid in IPID_P outside the settings hooks (pid state: a hook VAR sets it on every start; or a constant that equals this pid by chance): held 10 minutes"
+# (I3 fix 2) the pid refusal's hold is the short one — dated 50 minutes back,
+# as kk._img__worth's near miss (028 K2): a pid coincidence is gone on the
+# next start
+uf_run "$H"'; for f in "$FX"/img/ipid-*.hold; do read -r t r < "$f"; echo "age $(( EPOCHSECONDS - t ))"; done; while IFS= read -r l; do [[ $l == *"held for"* ]] && echo "${l%%:*}"; done < "$FX/e.txt"'
+a=${UF_OUT#age }; a=${a%%$'\n'*}
+[[ $UF_OUT == "age "*$'\n'"kbool" && $a == [0-9]* && $a != *[!0-9]* ]] && (( a >= 3000 && a < 3060 ))
+uf_check "the pid refusal is held 10 minutes (the hold dated 50 minutes back), not an hour [I3 fix 2]" $?
+uf_run "$H"'; kk.image ipidc 2>"$FX/e.txt"; while IFS= read -r l; do [[ $l == *"no image written"* || $l == *"image: wrote "* ]] && echo "${l%% /*}"; done < "$FX/e.txt"'
+A=$UF_OUT
+uf_run "$H"'; kk.image ipidc 2>&1; echo "${__KK_UNIT_PID[ipidc]-image} r=$(( IPIDC_R > 0 )) i=${IPIDC_I@a}"'
+UF_OUT="$A | $UF_OUT"
+[[ $A == "kbool: image: wrote" && $UF_OUT == *" | kbool: image: loaded from $FX/img/ipidc-"*".img"$'\n'"image r=1 i=i" ]]
+uf_check "a readonly and an integer global equal to the pid (constants by kind): imaged, a hit [I3 fix 2]" $?
 uf_run "$H"'; kk.image ihashk 2>&1 | grep -c "wrote"'
 A=$UF_OUT
 uf_run "$H"'; kk.image ihashk 2>&1; echo "${BASH_CMDS[kbool_hook_cmd]-none}"'

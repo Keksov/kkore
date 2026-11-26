@@ -164,8 +164,13 @@ unset r
 kk._img_state "$2" canon
 # (the dump half, I3 fix 1 critic M4: the canon dump lists them, by their records)
 IFS= read -r -d '' d < "$2" || :
-[[ $d == *$'\n''declare -A IUV_A'$'\n'* && $d == *$'\n''declare -i IUV_N'$'\n'* && $d == *$'\n''declare -n IUV_R'$'\n'* && $d != *'declare -a IUV_FAKE'$'\n'* ]] && echo "dump=listed" || echo "dump=missing"
-unset d
+# (no record of IUV_FAKE: looked for outside IUV_F's own record — bash 5.1
+# prints IUV_F's value with real newlines, so its text holds that line; I3
+# fix 2, CI 45792335928)
+f=$(declare -p IUV_F)
+e=${d/"$f"/}
+[[ $d == *$'\n''declare -A IUV_A'$'\n'* && $d == *$'\n''declare -i IUV_N'$'\n'* && $d == *$'\n''declare -n IUV_R'$'\n'* && $e != *'declare -a IUV_FAKE'* ]] && echo "dump=listed" || echo "dump=missing"
+unset d e f
 iuv.f
 EOF
 uf_run 'bash "$FX/uv.sh" miss "$FX/uv0.d"; bash "$FX/uv.sh" hit "$FX/uv1.d"; bash "$FX/uv.sh" plain "$FX/uv2.d"; bash "$FX/cmp.sh" "$FX/uv2.d" "$FX/uv1.d"'

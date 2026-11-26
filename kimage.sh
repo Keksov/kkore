@@ -2162,10 +2162,18 @@ kk._img__build() {
         fi
         # (pid state outside the hooks: an image would hand the writer's pid to
         # every start — fv.views' owner pid held so made its subshell guard
-        # refuse every call after a start; I3 fix 1, critic M3)
-        if [[ ! -R $__kk_imk_x && $__kk_imk_y != *[aA]* && -n ${!__kk_imk_x+x} ]] \
+        # refuse every call after a start; I3 fix 1, critic M3). Pid state is
+        # a plain scalar: a readonly or integer one is a constant (the small
+        # pids of Cygwin / MSYS meet fv's FV_OF_CENTERED=768 and the like), and
+        # a plain constant that equals this pid by chance is gone on the next
+        # start — so the hold is the short one (10 minutes, as
+        # kk._img__worth's near miss), real pid state refused again after it
+        # (I3 fix 2)
+        if [[ ! -R $__kk_imk_x && $__kk_imk_y != *[aAir]* && -n ${!__kk_imk_x+x} ]] \
            && [[ ${!__kk_imk_x} == "$BASHPID" || ${!__kk_imk_x} == "$$" ]]; then
-            __kk_imw_why="the load stored this shell's pid in $__kk_imk_x outside the settings hooks (pid state: a hook VAR sets it on every start)"; return 1
+            __kk_imw_why="the load stored this shell's pid in $__kk_imk_x outside the settings hooks (pid state: a hook VAR sets it on every start; or a constant that equals this pid by chance): held 10 minutes"
+            __kk_imw_htime=$(( EPOCHSECONDS - 3000 ))
+            return 1
         fi
         __kk_imk_nv+=("$__kk_imk_x")
         if [[ $__kk_imk_y == *r* ]]; then __kk_imk_ro+=("$__kk_imk_x"); fi
